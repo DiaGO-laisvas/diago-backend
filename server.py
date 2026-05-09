@@ -142,30 +142,46 @@ async def root():
 
 @api_router.get("/health")
 async def health():
-    db = _get_db()
-    if db is None:
+    uri = os.environ.get("MONGODB_URI", "").strip()
+    if not uri:
+        return {"status": "ok", "db": "no_uri", "hint": "MONGODB_URI nenustatytas."}
+
+    # 1. Patikrinam ar motor įdiegtas
+    try:
+        from motor.motor_asyncio import AsyncIOMotorClient
+    except ImportError as e:
         return {
             "status": "ok",
-            "db": "no_uri",
-            "hint": "MONGODB_URI env kintamasis nėra nustatytas Render aplinkoje.",
+            "db": "no_motor_lib",
+            "error": str(e),
+            "hint": "motor biblioteka neįdiegta. Patikrinkite requirements.txt ir Build Command Render'e.",
         }
+
+    # 2. Bandom prisijungti realiai (su timeout)
     try:
-        # Bandom pingu pasiekti DB (max 4s)
+        client = AsyncIOMotorClient(uri, serverSelectionTimeoutMS=5000)
+        db_name = os.environ.get("MONGODB_DB", "diago")
+        db = client[db_name]
         result = await db.command("ping")
-        # Patikrinam, ar gali rašyti
         collections = await db.list_collection_names()
+        # Cache for future calls
+        global _mongo_client, _db
+        _mongo_client = client
+        _db = db
         return {
             "status": "ok",
             "db": "connected",
             "ping": result,
             "collections": collections,
+            "db_name": db_name,
         }
     except Exception as e:
         return {
             "status": "ok",
             "db": "error",
-            "error": str(e)[:300],
-            "hint": "Patikrinkite MONGODB_URI slaptažodį ir MongoDB Atlas Network Access.",
+            "error_type": type(e).__name__,
+            "error": str(e)[:400],
+            "hint": "Patikrinkite slaptažodį ir MongoDB Atlas Network Access.",
         }
 
 
