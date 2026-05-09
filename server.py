@@ -387,10 +387,25 @@ Vienas iš trijų aiškių atsakymų:
 3–5 konkrečių veiksmų sąrašas su „•" (ką patikrinti, kur važiuoti, kokius matavimus atlikti).
 
 ## Galimai sugedusi detalė
-Nurodykite 1–2 dažniausiai keičiamas detales su tipiniais OEM/aftermarket detalių pavadinimais lietuvių kalba ir, jei žinoma, su gamintojo OEM kodo formato pavyzdžiu (pvz., „lambda zondas, OEM kodas 0258006206 (Bosch)"). Jei tikslaus kodo nežinote – aiškiai pažymėkite „tikslus kodas priklauso nuo modelio".
+Pateikite kuo tikslesnius detalių kodus markdown LENTELE, šia struktūra (be papildomo teksto, tik lentelė):
+
+| Detalė | OEM kodas | Gamintojas | Pastaba |
+|---|---|---|---|
+| Lambda zondas (priekinis) | 0258006206 | Bosch | Bendras kodas BMW E46 N42 varikliui |
+| Lambda zondas (galinis) | 0258006537 | Bosch | Diagnostinis, po katalizatoriumi |
+
+SVARBU:
+- Jei žinote tikslų OEM kodą – įrašykite jį be skliaustų, raidžių ar tarpų, lygiai kaip pateikiamas kataloge.
+- Jei kodas priklauso nuo konkretaus modelio/metų, kurio vartotojas nenurodė – stulpelyje "OEM kodas" rašykite TIK „—" (brūkšnį) ir Pastaboje paaiškinkite.
+- Jei TIKRAI neįmanoma nustatyti net detalės pavadinimo (per platus kodas, neaiški klaida) – vietoj lentelės parašykite tik tris žodžius:
+NĖRA TIKSLIŲ KODŲ
+
+## Vieta automobilyje
+1–2 sakinių aprašymas, kur fiziškai automobilyje yra detalė (pvz., „Variklio skyriuje, dešinėje pusėje, prie oro įsiurbimo kolektoriaus"). Šis aprašymas reikalingas, kad klientas suprastų, kur ieškoti.
 
 ## Paieškos užklausa
-Vienoje eilutėje pateikite konkrečią užklausą, kurią klientas galėtų naudoti Google ar dalių kataloge ieškant detalės (pvz., „Bosch lambda zondas 0258006206 BMW E46").
+Pateikite šią eilutę TIK jei aukščiau lentelėje nėra nė vieno tikslaus OEM kodo (visi „—" arba parašyta „NĖRA TIKSLIŲ KODŲ"). Tokiu atveju vienoje eilutėje pateikite konkrečią paieškos užklausą Google paieškai (pvz., „Toyota RAV4 2010 lambda zondas").
+Jei lentelėje yra bent vienas tikslus OEM kodas – šios skilties NEPATEIKITE arba palikite tuščią.
 """
 
 
