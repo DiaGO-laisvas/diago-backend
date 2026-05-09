@@ -185,30 +185,6 @@ async def health():
         }
 
 
-@api_router.get("/debug/env")
-async def debug_env():
-    """DIAGNOSTIKA – grąžina tik env kintamųjų raktus (be reikšmių saugumui)."""
-    keys = sorted(os.environ.keys())
-    important = {
-        "MONGODB_URI_set": bool(os.environ.get("MONGODB_URI")),
-        "MONGODB_URI_length": len(os.environ.get("MONGODB_URI", "")),
-        "MONGODB_URI_prefix": os.environ.get("MONGODB_URI", "")[:25] + "..." if os.environ.get("MONGODB_URI") else "",
-        "EMERGENT_LLM_KEY_set": bool(os.environ.get("EMERGENT_LLM_KEY")),
-        "ADMIN_EMAIL_set": bool(os.environ.get("ADMIN_EMAIL")),
-        "ADMIN_EMAIL_value": os.environ.get("ADMIN_EMAIL", "")[:50],
-        "ADMIN_PASSWORD_set": bool(os.environ.get("ADMIN_PASSWORD")),
-        "JWT_SECRET_set": bool(os.environ.get("JWT_SECRET")),
-        "PORT_set": bool(os.environ.get("PORT")),
-        "PORT_value": os.environ.get("PORT", ""),
-    }
-    diago_keys = [k for k in keys if any(p in k.upper() for p in ["MONGO", "ADMIN", "JWT", "EMERGENT", "DIAGO"])]
-    return {
-        "important": important,
-        "diago_related_keys": diago_keys,
-        "total_env_count": len(keys),
-    }
-
-
 # ============================
 # ANALYTICS - Visit tracking
 # ============================
