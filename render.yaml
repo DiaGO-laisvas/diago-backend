@@ -1,0 +1,16 @@
+# Render.com automatinio paleidimo konfigūracija
+# Įkėlus į GitHub ir prijungus repo prie Render – auto-deploy'ins.
+services:
+  - type: web
+    name: diago-api
+    runtime: python
+    region: frankfurt
+    plan: free
+    buildCommand: pip install -r requirements.txt
+    startCommand: uvicorn server:app --host 0.0.0.0 --port $PORT
+    healthCheckPath: /api/health
+    envVars:
+      - key: EMERGENT_LLM_KEY
+        sync: false   # Įvesti per Render Dashboard (Secret)
+      - key: PYTHON_VERSION
+        value: 3.11.9
