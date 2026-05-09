@@ -143,7 +143,30 @@ async def root():
 @api_router.get("/health")
 async def health():
     db = _get_db()
-    return {"status": "ok", "db": "connected" if db is not None else "disconnected"}
+    if db is None:
+        return {
+            "status": "ok",
+            "db": "no_uri",
+            "hint": "MONGODB_URI env kintamasis nėra nustatytas Render aplinkoje.",
+        }
+    try:
+        # Bandom pingu pasiekti DB (max 4s)
+        result = await db.command("ping")
+        # Patikrinam, ar gali rašyti
+        collections = await db.list_collection_names()
+        return {
+            "status": "ok",
+            "db": "connected",
+            "ping": result,
+            "collections": collections,
+        }
+    except Exception as e:
+        return {
+            "status": "ok",
+            "db": "error",
+            "error": str(e)[:300],
+            "hint": "Patikrinkite MONGODB_URI slaptažodį ir MongoDB Atlas Network Access.",
+        }
 
 
 # ============================
