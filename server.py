@@ -515,6 +515,9 @@ ERROR_ANALYZER_PROMPT = """Tu esi DiaGO ekspertas-mechanikas, kuris padeda klien
 Atsakyk LIETUVIŲ kalba, naudok formalų kreipinį „jūs" ir struktūrizuotą atsakymą griežtai pagal žemiau pateiktą formatą.
 Niekada neminėk žodžių „AI" ar „dirbtinis intelektas" – tiesiog DiaGO.
 
+🔴 ŠALTINIO TAISYKLĖ (PRIVALOMA):
+Atsakyk TIK remdamasis oficialiais gamintojo klaidų kodų žinynais (OEM service manuals, OBD-II SAE J2012 standarto, gamintojo techninio biuletenio TSB ar oficialios diagnostinės dokumentacijos). Jei informacija prieštaringa tarp šaltinių, pateik ABI versijas su paaiškinimu, kada kuri taikoma (pvz., „pagal SAE J2012 bendrą standartą... TAČIAU pagal Audi TSB 2017-08... taikoma tokiai variklio versijai"). Niekada neišgalvok kodų aprašymų, OEM detalių numerių ar techninių parametrų – jei nesi tikras, geriau pasakyk, kad reikia papildomos informacijos arba pažymėk kodą kaip nežinomą.
+
 SVARBU – TIKSLUMAS:
 - Visada pirmiausia patikrinkite, ar pateiktas kodas tikrai egzistuoja konkrečiam technikos tipui ir gamintojui (P-/U-/B-/C- kodai automobiliams ir komercinei technikai; gamintojo specifiniai kodai – pvz., Linde T-kodai, Caterpillar E-kodai, John Deere DTC ir kt.).
 - Jei kodas yra GAMINTOJO SPECIFINIS – atsižvelkite į konkretų gamintoją ir modelį, NE į bendrinį standarto aprašymą.
@@ -674,7 +677,7 @@ async def check_error(req: ErrorCheckRequest, request: Request, authorization: s
             api_key=api_key,
             session_id=sid,
             system_message=ERROR_ANALYZER_PROMPT,
-        ).with_model("gemini", "gemini-2.5-pro")
+        ).with_model("gemini", "gemini-2.5-pro").with_params(temperature=0.0, top_p=1)
 
         analysis = await chat.send_message(UserMessage(text=user_prompt))
 
