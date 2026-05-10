@@ -80,6 +80,78 @@ def _admin_check_password(pw: str) -> bool:
         return False
     return hmac.compare_digest(_hash_password(pw), _hash_password(expected))
 
+
+# ============================
+# User auth (pbkdf2 - per-user salt)
+# ============================
+def _user_hash_password(password: str, salt: str | None = None) -> tuple[str, str]:
+    """Grąžina (salt_hex, hash_hex). Saugu naudoti pbkdf2_hmac su 200k iteracijų."""
+    if salt is None:
+        salt_bytes = secrets.token_bytes(16)
+    else:
+        salt_bytes = bytes.fromhex(salt)
+    dk = hashlib.pbkdf2_hmac("sha256", password.encode("utf-8"), salt_bytes, 200_000)
+    return salt_bytes.hex(), dk.hex()
+
+
+def _user_verify_password(password: str, salt_hex: str, hash_hex: str) -> bool:
+    try:
+        _, computed = _user_hash_password(password, salt_hex)
+        return hmac.compare_digest(computed, hash_hex)
+    except Exception:
+        return False
+
+
+def _make_user_token(user_id: str, email: str) -> str:
+    """JWT-pavidalo HMAC token vartotojui (30d galiojimas)."""
+    secret = os.environ.get("JWT_SECRET", "diago-default-secret-change-me")
+    exp = int((datetime.now(timezone.utc) + timedelta(days=30)).timestamp())
+    payload = json.dumps({"uid": user_id, "email": email, "exp": exp, "scope": "user"}, separators=(",", ":"))
+    sig = hmac.new(secret.encode(), payload.encode(), hashlib.sha256).hexdigest()
+    import base64
+    p64 = base64.urlsafe_b64encode(payload.encode()).decode().rstrip("=")
+    return f"{p64}.{sig}"
+
+
+def _verify_user_token(token: str) -> dict | None:
+    if not token:
+        return None
+    try:
+        import base64
+        p64, sig = token.split(".", 1)
+        secret = os.environ.get("JWT_SECRET", "diago-default-secret-change-me")
+        padded = p64 + "=" * (-len(p64) % 4)
+        payload_bytes = base64.urlsafe_b64decode(padded.encode())
+        expected_sig = hmac.new(secret.encode(), payload_bytes, hashlib.sha256).hexdigest()
+        if not hmac.compare_digest(sig, expected_sig):
+            return None
+        payload = json.loads(payload_bytes.decode())
+        if payload.get("exp", 0) < int(datetime.now(timezone.utc).timestamp()):
+            return None
+        if payload.get("scope") != "user":
+            return None
+        return payload
+    except Exception:
+        return None
+
+
+async def _get_current_user(authorization: str | None) -> dict | None:
+    """Grąžina prisijungusio user dokumentą iš DB arba None."""
+    if not authorization or not authorization.lower().startswith("bearer "):
+        return None
+    token = authorization.split(" ", 1)[1].strip()
+    payload = _verify_user_token(token)
+    if not payload:
+        return None
+    db = _get_db()
+    if db is None:
+        return None
+    try:
+        user = await db.users.find_one({"email": payload.get("email")}, {"password_hash": 0, "password_salt": 0})
+        return user
+    except Exception:
+        return None
+
 def _make_admin_token(email: str) -> str:
     secret = os.environ.get("JWT_SECRET", "diago-default-secret-change-me")
     exp = int((datetime.now(timezone.utc) + timedelta(hours=12)).timestamp())
@@ -259,9 +331,13 @@ async def submit_feedback(req: FeedbackRequest):
 DIAGO_SYSTEM_PROMPT = """Tu esi DiaGO klientų aptarnavimo konsultantas. DiaGO yra savitarnos automobilių diagnostikos paslaugų teikėjas Lietuvoje.
 
 ESMINĖ INFORMACIJA APIE DiaGO:
-- DiaGO teikia DVI atskiras paslaugas:
-  1. **Savitarnos diagnostikos stotelės** prie Neste degalinių (fizinė diagnostika su OBD įrenginiu)
-  2. **Internetinė klaidų paieška** svetainėje diago.lt/klaidos (klaidos kodo paaiškinimas internetu)
+- DiaGO teikia DVI atskiras paslaugas su SKIRTINGU technikos palaikymu:
+  1. **Savitarnos diagnostikos stotelės** prie Neste degalinių – TIK AUTOMOBILIAMS (fizinė diagnostika su OBD įrenginiu)
+  2. **Internetinė klaidų paieška** svetainėje diago.lt/klaidos – BET KOKIAI TECHNIKAI: automobiliams, motociklams, statybinei technikai (krautuvai, ekskavatoriai), žemės ūkio technikai (traktoriai, kombainai), sandėliavimo technikai (autokrautuvai) ir kt.
+
+🔴 KRITIŠKAI SVARBU – TECHNIKOS APRIBOJIMAI:
+- Klausiant „ar galiu patikrinti TRAKTORIŲ / motociklą / krautuvą / statybinę techniką?" – TAIP, **internetinė klaidų paieška veikia bet kokiai technikai**. Niekada nesakyk „skirta tik automobiliams" – tai NETIESA dėl klaidų paieškos paslaugos!
+- Tik FIZINĖS DiaGO stotelės skirtos automobiliams. Jei kas klausia apie traktoriaus diagnostiką stotelėje – pasakyk, kad fizinės stotelės skirtos tik automobiliams, BET internetinė klaidų paieška veikia ir traktoriams.
 
 =========================================
 1. SAVITARNOS DIAGNOSTIKOS STOTELĖ (fizinė)
@@ -317,11 +393,26 @@ ELGESYS:
 - Vartok formalų kreipinį „jūs" („gausite", „atvykite", „prijunkite")
 - Atsakymo struktūra: pasisveikinimas → trumpas paaiškinimas (2–4 sakiniai) → kontaktai (jei aktualu) → klausimas „Ar dar kažką norėtumėte žinoti?"
 - Pradėk pirmą atsakymą su „Sveiki!" (ne kiekviename, tik pirmame)
-- Jei klausiama apie abonementą – BŪTINAI pasitikslink, ar kalba apie internetinę klaidų paiešką ar stotelių abonementą; jei aišku iš konteksto – pateik atitinkamą informaciją
+- 🔴 KRITIŠKAI SVARBU – KAI KLAUSIAMA APIE „ABONEMENTĄ" arba „VERSLO PASIŪLYMĄ" be aiškaus konteksto:
+  PRIVALU paminėti ABU abonementus (klaidų paieškos IR stotelių). Niekada neminėk tik vieno!
+  Pateik trumpai abu variantus ir paklausk klientą, kuris jam aktualus.
+- Jei klausimas aiškiai apie konkretų abonementą (pvz., „kiek kainuoja klaidų paieškos abonementas?" arba „stotelių abonementas") – pateik atsakymą tik apie tą vieną
+- 🔴 JOKIU BŪDU NEMINĖKITE skaičių „199" ar „50 vairuotojų" – tai SENA, nebegaliojanti informacija. Galiojančios kainos: 29 € (klaidų paieška) ir 299 € (stotelės)
 - Jei klausimas ne apie DiaGO ar automobilių diagnostiką – mandagiai pasakyk, kad gali padėti tik su DiaGO susijusiais klausimais
 - Sudėtingais ar individualiais klausimais (pvz., didelėms įmonėms, individualios sutartys) – nukreipk į telefoną +370 638 34539 arba el. paštą jt@diago.lt
 - Niekada neminėk žodžių „AI" ar „dirbtinis intelektas" – tiesiog DiaGO konsultantas
 - Nesiūlyk pirkti, neagituok – tiesiog informuok ir konsultuok
+
+PAVYZDINIS ATSAKYMAS Į NEAIŠKŲ KLAUSIMĄ APIE „ABONEMENTĄ" / „VERSLO PASIŪLYMĄ":
+„Sveiki! Mielai padėsiu jums. DiaGO turi du atskirus verslo abonementus, priklausomai nuo Jūsų poreikių:
+
+🟢 **Klaidų paieškos abonementas** (internetinė paieška svetainėje) – nuo 29 €/mėn., iki 50 paieškų per mėnesį. Tinka įmonėms, servisams, nuomos kompanijoms, technikos operatoriams.
+
+🔵 **Stotelių abonementas** (fizinė diagnostika DiaGO stotelėse) – nuo 299 €/mėn., iki 20 automobilių neribota patikra visose DiaGO stotelėse Lietuvoje. Didesniems parkams – individualus planas.
+
+Kuris iš jų Jus labiau domina? Galiu papasakoti detaliau. Norėdami aptarti individualią sutartį, susisiekite:
+- Telefonas: +370 638 34539
+- El. paštas: jt@diago.lt"
 
 PAVYZDINIS ATSAKYMAS Į KLAUSIMĄ APIE KLAIDŲ PAIEŠKOS ABONEMENTĄ:
 „Sveiki! Mielai padėsiu jums.
@@ -386,14 +477,16 @@ async def chat_with_diago(req: ChatRequest):
         _sessions[sid].append({"role": "user", "content": user_text})
         _sessions[sid].append({"role": "assistant", "content": reply})
 
-        # Log į DB (anonimiškai, tik suskaičiavimui)
+        # Log į DB (pilna pokalbio žinutė admin'o peržiūrai)
         db = _get_db()
         if db is not None:
             try:
                 await db.chat_events.insert_one({
                     "session_id": sid,
+                    "user_message": user_text[:2000],
+                    "assistant_reply": (reply or "")[:8000],
                     "msg_len": len(user_text),
-                    "reply_len": len(reply),
+                    "reply_len": len(reply or ""),
                     "created_at": datetime.now(timezone.utc),
                 })
             except Exception:
@@ -439,6 +532,15 @@ Vienas iš trijų aiškių atsakymų:
 ## Rekomendacijos
 3–5 konkrečių veiksmų sąrašas su „•" (ką patikrinti, kur važiuoti, kokius matavimus atlikti).
 
+## Poveikis
+1–2 sakinių aprašymas, kaip ši klaida paveiks techniką (automobilį / motociklą / traktorių / krautuvą / ir kt., priklausomai nuo technikos tipo), jei nebus išspręsta (pvz., „Padidėjęs degalų suvartojimas, gali nepraeiti TA" arba „Krautuvas gali prarasti galią pakėlimo metu").
+
+## Atsargumo priemonės
+1–2 sakinių praktinis patarimas operatoriui ar vairuotojui (pritaikytas pagal technikos tipą, pvz., automobiliui – „Nevažiuoti dideliu greičiu ar ilgais maršrutais kol bus pakeista detalė", krautuvui – „Nekelti maksimalios apkrovos kol bus pašalinta klaida").
+
+## Remonto kaina (orientacinė)
+Pateikite orientacinį remonto kainos diapazoną EUR formatu (pvz., „80–250 €" arba „30–800 €", arba „0–200 € jei vienkartinis"). Skirta tik bendrai informacijai – tikslias kainas pasako autoservisas.
+
 ## Galimai sugedusi detalė
 Pateikite kuo tikslesnius detalių kodus markdown LENTELE, šia struktūra (be papildomo teksto, tik lentelė):
 
@@ -453,8 +555,8 @@ SVARBU:
 - Jei TIKRAI neįmanoma nustatyti net detalės pavadinimo (per platus kodas, neaiški klaida) – vietoj lentelės parašykite tik tris žodžius:
 NĖRA TIKSLIŲ KODŲ
 
-## Vieta automobilyje
-1–2 sakinių aprašymas, kur fiziškai automobilyje yra detalė (pvz., „Variklio skyriuje, dešinėje pusėje, prie oro įsiurbimo kolektoriaus"). Šis aprašymas reikalingas, kad klientas suprastų, kur ieškoti.
+## Vieta technikoje
+1–2 sakinių aprašymas, kur fiziškai technikoje (automobilyje, motocikle, traktoriuje, krautuve ir pan., priklausomai nuo konteksto) yra detalė (pvz., „Variklio skyriuje, dešinėje pusėje, prie oro įsiurbimo kolektoriaus" arba „Hidraulinės sistemos linijoje, šalia siurblio"). Šis aprašymas reikalingas, kad klientas suprastų, kur ieškoti.
 
 ## Paieškos užklausa
 Pateikite šią eilutę TIK jei aukščiau lentelėje nėra nė vieno tikslaus OEM kodo (visi „—" arba parašyta „NĖRA TIKSLIŲ KODŲ"). Tokiu atveju vienoje eilutėje pateikite konkrečią paieškos užklausą Google paieškai (pvz., „Toyota RAV4 2010 lambda zondas").
@@ -467,12 +569,15 @@ class ErrorCheckRequest(BaseModel):
     equipment_type: str
     error_code: str
     vehicle_info: str | None = None
+    visitor_id: str | None = None  # nemokamų užklausų sekiojimui
+
 
 class ErrorCheckResponse(BaseModel):
     analysis: str
     search_query: str
     google_search_url: str
     google_images_url: str
+    quota: dict | None = None  # { logged_in, unlimited, limit, used, remaining }
 
 
 def _extract_search_query(analysis_text: str, fallback: str) -> str:
@@ -485,7 +590,7 @@ def _extract_search_query(analysis_text: str, fallback: str) -> str:
 
 
 @api_router.post("/check-error", response_model=ErrorCheckResponse)
-async def check_error(req: ErrorCheckRequest):
+async def check_error(req: ErrorCheckRequest, request: Request, authorization: str | None = Header(default=None)):
     code = (req.error_code or "").strip().upper()
     eq = (req.equipment_type or "").strip().lower()
     veh = (req.vehicle_info or "").strip()
@@ -496,6 +601,28 @@ async def check_error(req: ErrorCheckRequest):
         raise HTTPException(status_code=400, detail="Klaidos kodas per ilgas.")
     if eq not in EQUIPMENT_LABELS:
         raise HTTPException(status_code=400, detail="Neteisingas technikos tipas.")
+
+    # === Free quota patikra (jei NEPRISIJUNGĘS) ===
+    user = await _get_current_user(authorization)
+    db = _get_db()
+    quota_info = None
+    quota_doc = None  # išsaugom referencijai vėliau (count inkrementui)
+    if not user:
+        if db is not None:
+            ip = request.client.host if request.client else ""
+            ip_hash = _hash_ip(ip)
+            visitor_id = (req.visitor_id or "").strip()[:64]
+            quota_doc = await _get_or_create_quota(db, ip_hash, visitor_id)
+            used = int(quota_doc.get("count", 0))
+            if used >= FREE_QUOTA_LIMIT:
+                # Peržengta riba – siūlom prisiregistruoti
+                raise HTTPException(
+                    status_code=402,
+                    detail=(
+                        f"Išnaudoti visi {FREE_QUOTA_LIMIT} nemokami patikrinimai. "
+                        "Prašome prisiregistruoti nemokamai (iki 2026-06-01) – tęskite naudojimąsi be ribų."
+                    ),
+                )
 
     api_key = os.environ.get("EMERGENT_LLM_KEY", "")
     if not api_key:
@@ -524,17 +651,35 @@ async def check_error(req: ErrorCheckRequest):
         gs = "https://www.google.com/search?q=" + quote_plus(search_q)
         gi = "https://www.google.com/search?tbm=isch&q=" + quote_plus(search_q)
 
-        # Log į DB analitikai
-        db = _get_db()
+        # Log į DB analitikai + quota inkrementas
         if db is not None:
             try:
                 await db.error_checks.insert_one({
                     "session_id": sid,
+                    "user_id": user.get("user_id") if user else None,
                     "error_code": code,
                     "equipment": eq,
                     "vehicle_info": veh[:200] if veh else None,
                     "created_at": datetime.now(timezone.utc),
                 })
+                if user:
+                    # Užregistruotas vartotojas – tik bendras counter
+                    await db.users.update_one(
+                        {"user_id": user["user_id"]},
+                        {"$inc": {"checks_count": 1}, "$set": {"last_check_at": datetime.now(timezone.utc)}},
+                    )
+                    quota_info = {"logged_in": True, "unlimited": True, "limit": None, "used": user.get("checks_count", 0) + 1, "remaining": None}
+                else:
+                    # Anonim – inkrementuojam free quota
+                    ip = request.client.host if request.client else ""
+                    ip_hash = _hash_ip(ip)
+                    visitor_id = (req.visitor_id or "").strip()[:64]
+                    await _increment_quota(db, ip_hash, visitor_id)
+                    new_used = int(quota_doc.get("count", 0)) + 1 if quota_doc else 1
+                    quota_info = {
+                        "logged_in": False, "unlimited": False, "limit": FREE_QUOTA_LIMIT,
+                        "used": new_used, "remaining": max(0, FREE_QUOTA_LIMIT - new_used),
+                    }
             except Exception:
                 pass
 
@@ -543,6 +688,7 @@ async def check_error(req: ErrorCheckRequest):
             search_query=search_q,
             google_search_url=gs,
             google_images_url=gi,
+            quota=quota_info,
         )
     except HTTPException:
         raise
@@ -701,6 +847,63 @@ async def admin_feedbacks(limit: int = 100, authorization: str | None = Header(d
     return {"items": rows}
 
 
+@api_router.get("/admin/chats-recent")
+async def admin_chats_recent(limit: int = 100, authorization: str | None = Header(default=None)):
+    """Paskutinės AI pokalbių žinutės su pilnu tekstu (admin'o peržiūrai)."""
+    _require_admin(authorization)
+    db = _get_db()
+    if db is None:
+        return {"items": [], "db_offline": True}
+    cur = db.chat_events.find({}, {"_id": 0}).sort("created_at", -1).limit(max(1, min(limit, 500)))
+    rows = await cur.to_list(500)
+    return {"items": rows}
+
+
+@api_router.get("/admin/chats-by-session")
+async def admin_chats_by_session(session_id: str, limit: int = 200, authorization: str | None = Header(default=None)):
+    """Visi konkrečios sesijos pokalbiai chronologine tvarka."""
+    _require_admin(authorization)
+    db = _get_db()
+    if db is None:
+        return {"items": [], "db_offline": True}
+    cur = db.chat_events.find({"session_id": session_id}, {"_id": 0}).sort("created_at", 1).limit(max(1, min(limit, 500)))
+    rows = await cur.to_list(500)
+    return {"items": rows}
+
+
+@api_router.get("/admin/chat-sessions")
+async def admin_chat_sessions(limit: int = 50, authorization: str | None = Header(default=None)):
+    """Sesijų suvestinė: kiekvienai sesijai – žinučių kiekis, paskutinė data, paskutinė user žinutė."""
+    _require_admin(authorization)
+    db = _get_db()
+    if db is None:
+        return {"items": [], "db_offline": True}
+    pipeline = [
+        {"$sort": {"created_at": -1}},
+        {"$group": {
+            "_id": "$session_id",
+            "messages": {"$sum": 1},
+            "last_at": {"$max": "$created_at"},
+            "first_at": {"$min": "$created_at"},
+            "last_user_message": {"$first": "$user_message"},
+            "last_assistant_reply": {"$first": "$assistant_reply"},
+        }},
+        {"$project": {
+            "_id": 0,
+            "session_id": "$_id",
+            "messages": 1,
+            "last_at": 1,
+            "first_at": 1,
+            "last_user_message": 1,
+            "last_assistant_reply": 1,
+        }},
+        {"$sort": {"last_at": -1}},
+        {"$limit": max(1, min(limit, 200))},
+    ]
+    rows = await db.chat_events.aggregate(pipeline).to_list(200)
+    return {"items": rows}
+
+
 # ============================
 # Pricing config (paruošta ateičiai – mokėjimai dar nepajungti)
 # ============================
@@ -781,6 +984,503 @@ async def get_public_pricing():
     return {"items": items}
 
 
+# ============================
+# CHAT ANALYTICS (admin)
+# ============================
+# Lietuviški „stop words" – nešalinami iš n-grams analizės
+LT_STOPWORDS = set("""
+ar bei jei kad kai kas kiek kodėl koks kokia kokie kokios kuri kuris kurie kurios
+ne nei net o tai taip taigi tu jūs jis ji jie jos man mane mums tau tave jam jus
+jūs jį ją jiems joms su nuo iki per pas prie po dėl už ant prieš tarp be be tik
+yra buvo bus bet būti turi turėti turiu turite gali galima galiu galite norėčiau
+norėtumėte gerai labai daug mažai jau dar arba ir su mes aš joje jame
+diago info paslaugos paslaugą paslauga paslaugos paslaugos lietuvoje lietuva
+visa visi visiems visus visas visomis savo manau jūsų mūsų jokio jokia jokie
+""".split())
+
+def _tokenize_lt(text: str) -> list[str]:
+    """Paprastas lietuviškas tokenizatorius. Mažosios + raidės/skaičiai."""
+    if not text:
+        return []
+    # Žodis = raidės/skaičiai (palaikom lietuviškas)
+    words = re.findall(r"[a-zA-ZąčęėįšųūžĄČĘĖĮŠŲŪŽ0-9]+", text.lower())
+    # Filtruojam stopžodžius ir per trumpus
+    return [w for w in words if len(w) >= 3 and w not in LT_STOPWORDS]
+
+
+def _ngrams(tokens: list[str], n: int) -> list[str]:
+    if len(tokens) < n:
+        return []
+    return [" ".join(tokens[i:i+n]) for i in range(len(tokens) - n + 1)]
+
+
+# Iš anksto numatytos kategorijos – greitas raktažodžių klasifikavimas
+CHAT_CATEGORIES = [
+    ("Kainos / mokėjimas", ["kain", "moket", "moke", "pinig", "atsiskait", "pigi", "brangi", "užstat", "uzstat", "diskon", "stripe", "paysera", "akcij", "nuolaid"]),
+    ("Stotelės / vietos", ["stotel", "neste", "vilnius", "kaun", "klaipėd", "klaipėd", "panevėž", "panevez", "šiauli", "siauli", "kėdaini", "kedaini", "vieta", "miest", "adres"]),
+    ("Verslo abonementas", ["abonemen", "verslo", "įmon", "imon", "servis", "nuom", "parka", "fleet", "29", "299", "individual", "individuali"]),
+    ("Internetinė klaidų paieška", ["internetin", "klaid", "kod", "obd", "p0", "p1", "p2", "p3", "u0", "b0", "c0", "online"]),
+    ("Motociklai / kita technika", ["motocikl", "trakto", "kombain", "krautuv", "ekskavato", "statybin", "žemės", "zemes", "sandėl", "sandel"]),
+    ("Diagnostikos eiga", ["trukmė", "trukme", "kiek užtrunk", "kiek uztrunk", "kaip vyks", "kaip atlik", "ataskait", "rezultat", "ciklas", "minut"]),
+    ("Atidarymas / data", ["atidar", "kada", "greitai", "atidarym", "bus", "paleidim", "veikia", "veikti"]),
+    ("Klientų aptarnavimas", ["pagalb", "kontakt", "telefon", "el. pašt", "el pašt", "skambin", "raš"]),
+    ("Saugumas / privatumas", ["saug", "duomen", "privat", "asmen", "gdpr", "slapuk"]),
+    ("Pretenzijos / problemos", ["neveiki", "blogai", "problem", "klaid", "neaiš", "neais", "skund", "preten", "atgal"]),
+]
+
+
+def _classify_message(text: str) -> str:
+    """Grąžina kategoriją pagal raktažodžius. „Kita" jei nė viena nesuveikia."""
+    if not text:
+        return "Kita"
+    t = text.lower()
+    for label, keywords in CHAT_CATEGORIES:
+        if any(kw in t for kw in keywords):
+            return label
+    return "Kita"
+
+
+@api_router.get("/admin/chat-analytics")
+async def admin_chat_analytics(
+    days: int = 30,
+    use_ai: bool = False,
+    authorization: str | None = Header(default=None),
+):
+    """Pokalbių analizė: kategorijos, top frazės, sesijų skaičius.
+
+    Args:
+        days: Periodas dienomis (7, 30, 90)
+        use_ai: Jei True – pridedama AI sumarizuota santrauka (vienas Haiku call'as ~$0.001)
+    """
+    _require_admin(authorization)
+    db = _get_db()
+    if db is None:
+        return {"period_days": days, "total_messages": 0, "categories": [], "top_phrases": [], "summary": "DB nepasiekiama."}
+
+    days = max(1, min(days, 365))
+    since = datetime.now(timezone.utc) - timedelta(days=days)
+
+    # Paimam VISAS user_message žinutes per laikotarpį
+    cur = db.chat_events.find(
+        {"created_at": {"$gte": since}},
+        {"_id": 0, "user_message": 1, "session_id": 1, "created_at": 1},
+    ).limit(5000)
+    rows = await cur.to_list(5000)
+
+    total = len(rows)
+    if total == 0:
+        return {
+            "period_days": days,
+            "total_messages": 0,
+            "unique_sessions": 0,
+            "categories": [],
+            "top_phrases": [],
+            "top_questions": [],
+            "summary": "Per pasirinktą laikotarpį pokalbių nebuvo.",
+        }
+
+    unique_sessions = len({r.get("session_id") for r in rows})
+
+    # 1) Kategorijos (raktažodžių klasifikavimas)
+    cat_counts: dict[str, int] = defaultdict(int)
+    for r in rows:
+        cat = _classify_message(r.get("user_message", ""))
+        cat_counts[cat] += 1
+    categories = [
+        {"label": k, "count": v, "pct": round(v / total * 100, 1)}
+        for k, v in sorted(cat_counts.items(), key=lambda x: -x[1])
+    ]
+
+    # 2) N-grams: top frazės (1-, 2- ir 3-žodžiai junginiai)
+    phrase_counts: dict[str, int] = defaultdict(int)
+    for r in rows:
+        toks = _tokenize_lt(r.get("user_message", ""))
+        for ng in toks:
+            phrase_counts[ng] += 1
+        for ng in _ngrams(toks, 2):
+            phrase_counts[ng] += 1
+        for ng in _ngrams(toks, 3):
+            phrase_counts[ng] += 1
+    # Filtruojam: bigramos/trigramos turi būti pasitaikiusios bent 2 kartus
+    top_phrases = sorted(
+        ((p, c) for p, c in phrase_counts.items() if c >= 2),
+        key=lambda x: -x[1],
+    )[:30]
+    top_phrases_list = [{"phrase": p, "count": c} for p, c in top_phrases]
+
+    # 3) Top dažniausiai besikartojantys pirmieji klausimai (panašūs)
+    # Paprasčiausia: imam pirmą sesijos žinutę ir grupuojam pagal pirmus 60 simbolių (lower)
+    first_msgs: dict[str, list] = defaultdict(list)
+    seen_sessions = set()
+    for r in sorted(rows, key=lambda x: x.get("created_at") or datetime.now(timezone.utc)):
+        sid = r.get("session_id")
+        if sid in seen_sessions:
+            continue
+        seen_sessions.add(sid)
+        msg = (r.get("user_message") or "").strip()
+        key = re.sub(r"\s+", " ", msg.lower())[:80]
+        if key:
+            first_msgs[key].append(msg)
+    top_questions_raw = sorted(first_msgs.items(), key=lambda x: -len(x[1]))[:15]
+    top_questions = [
+        {"question": items[0][:200], "count": len(items)}
+        for _, items in top_questions_raw if items
+    ]
+
+    # 4) AI santrauka (neprivaloma)
+    summary = None
+    if use_ai:
+        api_key = os.environ.get("EMERGENT_LLM_KEY", "")
+        if api_key:
+            try:
+                # Imam top 50 unikalių pirmų žinučių
+                sample_questions = [items[0] for _, items in top_questions_raw[:50] if items]
+                prompt = (
+                    f"Pateikiu sąrašą {len(sample_questions)} klientų klausimų DiaGO konsultantui per "
+                    f"paskutines {days} dienų. Trumpai (4-6 sakiniais) apibendrink, ko klientai DAŽNIAUSIAI klausė ir "
+                    f"kokios yra pagrindinės temos. Atsakyk LIETUVIŲ kalba, dalykiškai. Pradėk frazę „Per paskutines {days} dienų klientai dažniausiai...\".\n\n"
+                    "Klausimai:\n" + "\n".join(f"- {q}" for q in sample_questions)
+                )
+                chat = LlmChat(
+                    api_key=api_key,
+                    session_id=f"analytics-{int(datetime.now(timezone.utc).timestamp())}",
+                    system_message="Tu – analitikas, glaustai apibendrinantis klientų klausimus.",
+                ).with_model("anthropic", "claude-haiku-4-5-20251001")
+                summary = await chat.send_message(UserMessage(text=prompt))
+            except Exception as e:
+                logger.warning(f"AI summary failed: {e}")
+                summary = f"AI santrauka nepavyko: {str(e)[:100]}"
+        else:
+            summary = "EMERGENT_LLM_KEY nenustatytas."
+
+    return {
+        "period_days": days,
+        "total_messages": total,
+        "unique_sessions": unique_sessions,
+        "categories": categories,
+        "top_phrases": top_phrases_list,
+        "top_questions": top_questions,
+        "summary": summary,
+    }
+
+
+# ============================
+# USER AUTH (privatus / verslo) – paprastas vienas prisijungimas
+# ============================
+EMAIL_RE = re.compile(r"^[A-Za-z0-9._%+\-]+@[A-Za-z0-9.\-]+\.[A-Za-z]{2,}$")
+
+class RegisterRequest(BaseModel):
+    email: str
+    password: str
+    accept_privacy: bool = True
+
+
+class LoginRequest(BaseModel):
+    email: str
+    password: str
+
+
+class UserResponse(BaseModel):
+    token: str
+    email: str
+    user_id: str
+    has_profile: bool
+
+
+class ProfileUpdateRequest(BaseModel):
+    type: str | None = None  # "private" | "business"
+    first_name: str | None = None
+    last_name: str | None = None
+    phone: str | None = None
+    company_name: str | None = None
+    company_code: str | None = None
+    vat_code: str | None = None
+    address: str | None = None
+    city: str | None = None
+    country: str | None = None
+    contact_person: str | None = None
+
+
+@api_router.post("/auth/register", response_model=UserResponse)
+async def auth_register(req: RegisterRequest):
+    email = (req.email or "").strip().lower()
+    pw = req.password or ""
+    if not EMAIL_RE.match(email):
+        raise HTTPException(status_code=400, detail="Neteisingas el. pašto formatas.")
+    if len(pw) < 6:
+        raise HTTPException(status_code=400, detail="Slaptažodis turi būti bent 6 simbolių.")
+    if len(pw) > 200:
+        raise HTTPException(status_code=400, detail="Slaptažodis per ilgas.")
+    if not req.accept_privacy:
+        raise HTTPException(status_code=400, detail="Reikia sutikti su privatumo politika.")
+
+    db = _get_db()
+    if db is None:
+        raise HTTPException(status_code=503, detail="DB nepasiekiama.")
+
+    existing = await db.users.find_one({"email": email})
+    if existing:
+        raise HTTPException(status_code=409, detail="Šis el. paštas jau užregistruotas. Prašome prisijungti.")
+
+    salt, h = _user_hash_password(pw)
+    user_id = "u-" + secrets.token_urlsafe(8)
+    now = datetime.now(timezone.utc)
+    await db.users.insert_one({
+        "user_id": user_id,
+        "email": email,
+        "password_hash": h,
+        "password_salt": salt,
+        "type": None,  # bus nustatytas pildant profilį
+        "profile": {},
+        "created_at": now,
+        "last_login": now,
+        "checks_count": 0,
+    })
+    token = _make_user_token(user_id, email)
+    return UserResponse(token=token, email=email, user_id=user_id, has_profile=False)
+
+
+@api_router.post("/auth/login", response_model=UserResponse)
+async def auth_login(req: LoginRequest):
+    email = (req.email or "").strip().lower()
+    pw = req.password or ""
+    if not email or not pw:
+        raise HTTPException(status_code=400, detail="Įveskite el. paštą ir slaptažodį.")
+
+    db = _get_db()
+    if db is None:
+        raise HTTPException(status_code=503, detail="DB nepasiekiama.")
+
+    user = await db.users.find_one({"email": email})
+    if not user or not _user_verify_password(pw, user.get("password_salt", ""), user.get("password_hash", "")):
+        raise HTTPException(status_code=401, detail="Neteisingas el. paštas arba slaptažodis.")
+
+    await db.users.update_one({"_id": user["_id"]}, {"$set": {"last_login": datetime.now(timezone.utc)}})
+
+    token = _make_user_token(user["user_id"], user["email"])
+    has_profile = bool(user.get("type")) and bool(user.get("profile"))
+    return UserResponse(token=token, email=user["email"], user_id=user["user_id"], has_profile=has_profile)
+
+
+@api_router.get("/auth/me")
+async def auth_me(authorization: str | None = Header(default=None)):
+    user = await _get_current_user(authorization)
+    if not user:
+        raise HTTPException(status_code=401, detail="Nepatvirtinta sesija.")
+    user.pop("_id", None)
+    return {"user": user}
+
+
+@api_router.put("/auth/profile")
+async def auth_update_profile(req: ProfileUpdateRequest, authorization: str | None = Header(default=None)):
+    user = await _get_current_user(authorization)
+    if not user:
+        raise HTTPException(status_code=401, detail="Nepatvirtinta sesija.")
+    db = _get_db()
+    if db is None:
+        raise HTTPException(status_code=503, detail="DB nepasiekiama.")
+
+    update = {}
+    if req.type is not None:
+        if req.type not in ("private", "business"):
+            raise HTTPException(status_code=400, detail="Neteisingas vartotojo tipas.")
+        update["type"] = req.type
+
+    profile_fields = {
+        "first_name": req.first_name, "last_name": req.last_name, "phone": req.phone,
+        "company_name": req.company_name, "company_code": req.company_code, "vat_code": req.vat_code,
+        "address": req.address, "city": req.city, "country": req.country,
+        "contact_person": req.contact_person,
+    }
+    profile_update = {}
+    for k, v in profile_fields.items():
+        if v is not None:
+            profile_update[f"profile.{k}"] = (v or "").strip()[:200]
+    update.update(profile_update)
+    update["updated_at"] = datetime.now(timezone.utc)
+
+    await db.users.update_one({"user_id": user["user_id"]}, {"$set": update})
+    return {"ok": True}
+
+
+# ============================
+# FREE QUOTA (3 nemokami patikrinimai be prisijungimo)
+# ============================
+FREE_QUOTA_LIMIT = 3
+FREE_QUOTA_DAYS = 90  # quota nuliuojamas kas 90d (pagal MongoDB TTL)
+
+
+def _hash_ip(ip: str) -> str:
+    if not ip:
+        return ""
+    salt = os.environ.get("JWT_SECRET", "diago-default-secret-change-me")
+    return hashlib.sha256((salt + "|ip|" + ip).encode("utf-8")).hexdigest()[:24]
+
+
+async def _get_or_create_quota(db, ip_hash: str, visitor_id: str) -> dict:
+    """Grąžina esamą quota dokumentą (max iš ip ir visitor_id įrašų)."""
+    now = datetime.now(timezone.utc)
+    # Imam tiek pagal ip_hash, tiek pagal visitor_id - blokuojam jei BET KURIS peržengė
+    candidates = []
+    if ip_hash:
+        c1 = await db.free_checks.find_one({"key_type": "ip", "key": ip_hash})
+        if c1:
+            candidates.append(c1)
+    if visitor_id:
+        c2 = await db.free_checks.find_one({"key_type": "vid", "key": visitor_id})
+        if c2:
+            candidates.append(c2)
+    if not candidates:
+        return {"count": 0, "first_at": now, "last_at": now}
+    # Grąžinam tą, kurio count didžiausias
+    return max(candidates, key=lambda x: x.get("count", 0))
+
+
+async def _increment_quota(db, ip_hash: str, visitor_id: str):
+    now = datetime.now(timezone.utc)
+    if ip_hash:
+        await db.free_checks.update_one(
+            {"key_type": "ip", "key": ip_hash},
+            {
+                "$inc": {"count": 1},
+                "$set": {"last_at": now},
+                "$setOnInsert": {"first_at": now, "key_type": "ip", "key": ip_hash},
+            },
+            upsert=True,
+        )
+    if visitor_id:
+        await db.free_checks.update_one(
+            {"key_type": "vid", "key": visitor_id},
+            {
+                "$inc": {"count": 1},
+                "$set": {"last_at": now},
+                "$setOnInsert": {"first_at": now, "key_type": "vid", "key": visitor_id},
+            },
+            upsert=True,
+        )
+
+
+@api_router.get("/quota/status")
+async def quota_status(
+    request: Request,
+    visitor_id: str = "",
+    authorization: str | None = Header(default=None),
+):
+    """Grąžina nemokamų užklausų statusą (kiek liko / ar prisijungęs)."""
+    user = await _get_current_user(authorization)
+    if user:
+        return {
+            "logged_in": True,
+            "unlimited": True,
+            "limit": None,
+            "used": user.get("checks_count", 0),
+            "remaining": None,
+        }
+
+    db = _get_db()
+    if db is None:
+        # DB nepasiekiama – leidžiam visiems
+        return {"logged_in": False, "unlimited": False, "limit": FREE_QUOTA_LIMIT, "used": 0, "remaining": FREE_QUOTA_LIMIT}
+
+    ip = request.client.host if request.client else ""
+    ip_hash = _hash_ip(ip)
+    quota = await _get_or_create_quota(db, ip_hash, visitor_id.strip()[:64])
+    used = int(quota.get("count", 0))
+    remaining = max(0, FREE_QUOTA_LIMIT - used)
+    return {
+        "logged_in": False,
+        "unlimited": False,
+        "limit": FREE_QUOTA_LIMIT,
+        "used": used,
+        "remaining": remaining,
+    }
+
+
+# ============================
+# ADMIN – Vartotojai
+# ============================
+@api_router.get("/admin/users")
+async def admin_users_list(limit: int = 100, authorization: str | None = Header(default=None)):
+    _require_admin(authorization)
+    db = _get_db()
+    if db is None:
+        return {"items": [], "db_offline": True}
+    cur = db.users.find(
+        {},
+        {"_id": 0, "password_hash": 0, "password_salt": 0},
+    ).sort("created_at", -1).limit(max(1, min(limit, 500)))
+    items = await cur.to_list(500)
+    return {"items": items}
+
+
+class AdminResetPasswordRequest(BaseModel):
+    user_id: str
+    new_password: str
+
+@api_router.post("/admin/users/reset-password")
+async def admin_users_reset_password(req: AdminResetPasswordRequest, authorization: str | None = Header(default=None)):
+    _require_admin(authorization)
+    if len(req.new_password or "") < 6:
+        raise HTTPException(status_code=400, detail="Slaptažodis turi būti bent 6 simbolių.")
+    db = _get_db()
+    if db is None:
+        raise HTTPException(status_code=503, detail="DB nepasiekiama.")
+    salt, h = _user_hash_password(req.new_password)
+    res = await db.users.update_one(
+        {"user_id": req.user_id},
+        {"$set": {"password_hash": h, "password_salt": salt, "updated_at": datetime.now(timezone.utc)}},
+    )
+    if res.matched_count == 0:
+        raise HTTPException(status_code=404, detail="Vartotojas nerastas.")
+    return {"ok": True}
+
+
+async def _ensure_indexes():
+    """Sukuria reikalingus MongoDB indeksus, įskaitant TTL pokalbių auto-trynimui (90d)."""
+    db = _get_db()
+    if db is None:
+        return
+    try:
+        # TTL indeksas: chat_events automatiškai trinami po 90 dienų
+        await db.chat_events.create_index(
+            "created_at",
+            expireAfterSeconds=90 * 24 * 60 * 60,
+            name="ttl_90d",
+        )
+        # Greitos paieškos pagal session_id
+        await db.chat_events.create_index("session_id", name="by_session")
+        # Klaidų checks – 180d retencija (po 6 mėn. trinami)
+        await db.error_checks.create_index(
+            "created_at",
+            expireAfterSeconds=180 * 24 * 60 * 60,
+            name="ttl_180d",
+        )
+        # Visits – 1 metai retencija
+        await db.visits.create_index(
+            "last_seen",
+            expireAfterSeconds=365 * 24 * 60 * 60,
+            name="ttl_365d",
+        )
+        logger.info("✅ MongoDB indeksai sukurti (įskaitant TTL).")
+    except Exception as e:
+        logger.warning(f"Index creation issue: {e}")
+    # users + free_checks indeksai (auth + quota)
+    try:
+        await db.users.create_index("email", unique=True, name="users_email_unique")
+        await db.users.create_index("user_id", name="users_user_id")
+        # free_checks – 90d auto-trynimas (kvotos atsinaujinimas)
+        await db.free_checks.create_index(
+            "last_at",
+            expireAfterSeconds=FREE_QUOTA_DAYS * 24 * 60 * 60,
+            name="free_checks_ttl",
+        )
+        await db.free_checks.create_index([("key_type", 1), ("key", 1)], unique=True, name="free_checks_unique")
+        logger.info("✅ users + free_checks indeksai sukurti.")
+    except Exception as e:
+        logger.warning(f"Auth indexes issue: {e}")
+
+
+# Routerio registracija – po VISŲ endpoint'ų deklaracijų
 app.include_router(api_router)
 
 
@@ -795,6 +1495,11 @@ async def startup():
         logger.warning("⚠️  ADMIN_PASSWORD nenustatytas – admin'as neveiks.")
     if not os.environ.get("JWT_SECRET"):
         logger.warning("⚠️  JWT_SECRET nenustatytas – admin sesijos nesaugios.")
+    # Indeksai (įskaitant TTL pokalbių auto-trynimui po 90d)
+    try:
+        await _ensure_indexes()
+    except Exception as e:
+        logger.warning(f"_ensure_indexes failed: {e}")
 
 
 @app.on_event("shutdown")
