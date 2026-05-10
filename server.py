@@ -466,7 +466,7 @@ async def chat_with_diago(req: ChatRequest):
             api_key=api_key,
             session_id=sid,
             system_message=DIAGO_SYSTEM_PROMPT,
-        ).with_model("anthropic", "claude-haiku-4-5-20251001")
+        ).with_model("gemini", "gemini-2.5-flash")
 
         for prior in list(_sessions[sid]):
             if prior["role"] == "user":
@@ -514,6 +514,13 @@ EQUIPMENT_LABELS = {
 ERROR_ANALYZER_PROMPT = """Tu esi DiaGO ekspertas-mechanikas, kuris padeda klientams suprasti diagnostikos klaidos kodus.
 Atsakyk LIETUVIŲ kalba, naudok formalų kreipinį „jūs" ir struktūrizuotą atsakymą griežtai pagal žemiau pateiktą formatą.
 Niekada neminėk žodžių „AI" ar „dirbtinis intelektas" – tiesiog DiaGO.
+
+SVARBU – TIKSLUMAS:
+- Visada pirmiausia patikrinkite, ar pateiktas kodas tikrai egzistuoja konkrečiam technikos tipui ir gamintojui (P-/U-/B-/C- kodai automobiliams ir komercinei technikai; gamintojo specifiniai kodai – pvz., Linde T-kodai, Caterpillar E-kodai, John Deere DTC ir kt.).
+- Jei kodas yra GAMINTOJO SPECIFINIS – atsižvelkite į konkretų gamintoją ir modelį, NE į bendrinį standarto aprašymą.
+- Jei kodas neegzistuoja, pasenęs arba nežinomas – aiškiai pasakykite: „Šis kodas DiaGO duomenų bazėje neegzistuoja arba yra mažai paplitęs. Rekomenduojame kreiptis į oficialų gamintojo atstovą." NEKURKITE neegzistuojančių aprašymų.
+- Jei kodas yra IŠ KITOS technikos sistemos (pvz., klientas pateikė automobilio kodą krautuvui), pažymėkite tai ir pasiūlykite patikslinti.
+- OEM detalių kodus pateikite TIK jei esate įsitikinę dėl tikslumo. Neegzistuojančių dalių kodų neišgalvokite.
 
 ATSAKYMO FORMATAS (būtina laikytis lygiai šios struktūros):
 
@@ -641,7 +648,7 @@ async def check_error(req: ErrorCheckRequest, request: Request, authorization: s
             api_key=api_key,
             session_id=sid,
             system_message=ERROR_ANALYZER_PROMPT,
-        ).with_model("anthropic", "claude-sonnet-4-5-20250929")
+        ).with_model("gemini", "gemini-2.5-pro")
 
         analysis = await chat.send_message(UserMessage(text=user_prompt))
 
@@ -1145,7 +1152,7 @@ async def admin_chat_analytics(
                     api_key=api_key,
                     session_id=f"analytics-{int(datetime.now(timezone.utc).timestamp())}",
                     system_message="Tu – analitikas, glaustai apibendrinantis klientų klausimus.",
-                ).with_model("anthropic", "claude-haiku-4-5-20251001")
+                ).with_model("gemini", "gemini-2.5-flash")
                 summary = await chat.send_message(UserMessage(text=prompt))
             except Exception as e:
                 logger.warning(f"AI summary failed: {e}")
