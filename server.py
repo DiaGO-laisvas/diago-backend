@@ -31,7 +31,7 @@ from urllib.parse import quote_plus
 from fastapi import FastAPI, APIRouter, HTTPException, Header, Request
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel, Field
-from emergentintegrations.llm.chat import LlmChat, UserMessage
+from emergentintegrations.llm.chat import LlmChat, UserMessage, ImageContent
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
@@ -653,6 +653,7 @@ class ErrorCheckRequest(BaseModel):
     visitor_id: str | None = None  # nemokamų užklausų sekiojimui
     vin: str | None = None  # neprivaloma – VIN arba serijinis numeris (max 50)
     fault_description: str | None = None  # neprivaloma – simptomų aprašymas (max 500)
+    image_base64: str | None = None  # neprivaloma – nuotraukos su klaidomis kodų ekranu (TIK prisijungusiems)
 
 
 class ErrorCheckResponse(BaseModel):
@@ -701,6 +702,11 @@ def _parse_codes(raw: str, max_codes: int = 5) -> list[str]:
         if len(out) >= max_codes:
             break
     return out
+
+
+# Maksimalus kodų skaičius vienai užklausai pagal įvedimo būdą
+MAX_CODES_TYPED = 5    # ranka įvedant
+MAX_CODES_IMAGE = 10   # iš nuotraukos (gali daugiau, jei matosi)
 
 
 def _parse_diago_meta(analysis: str) -> tuple[str, list[str], list[str], dict]:
@@ -753,27 +759,51 @@ async def check_error(req: ErrorCheckRequest, request: Request, authorization: s
     veh = (req.vehicle_info or "").strip()
     vin_raw = (req.vin or "").strip().upper()[:50]
     fault_desc = (req.fault_description or "").strip()[:500]
+    img_b64 = (req.image_base64 or "").strip()
+    has_image = bool(img_b64)
 
-    if not raw_codes:
-        raise HTTPException(status_code=400, detail="Klaidos kodas tuščias.")
+    if not raw_codes and not has_image:
+        raise HTTPException(status_code=400, detail="Įveskite klaidos kodą arba įkelkite nuotrauką su klaidomis.")
     if eq not in EQUIPMENT_LABELS:
         raise HTTPException(status_code=400, detail="Neteisingas technikos tipas.")
 
-    codes = _parse_codes(raw_codes, max_codes=5)
-    if not codes:
+    # Image limit check (~6 MB base64 ≈ 4.5 MB raw — Gemini limit is 20MB but kept lower)
+    if has_image and len(img_b64) > 8_000_000:
+        raise HTTPException(status_code=413, detail="Nuotrauka per didelė. Maksimalus dydis ~6 MB.")
+
+    # Strip data URL prefix if present
+    if has_image and img_b64.startswith("data:"):
+        try:
+            img_b64 = img_b64.split(",", 1)[1]
+        except Exception:
+            pass
+
+    # Limitas priklauso nuo įvedimo būdo
+    max_codes_limit = MAX_CODES_IMAGE if has_image else MAX_CODES_TYPED
+    codes = _parse_codes(raw_codes, max_codes=max_codes_limit) if raw_codes else []
+    if not codes and not has_image:
         raise HTTPException(status_code=400, detail="Nepavyko atpažinti nė vieno klaidos kodo.")
-    if len(codes) > 5:
-        codes = codes[:5]
+    if len(codes) > max_codes_limit:
+        codes = codes[:max_codes_limit]
 
     # Vienam užklausos atvaizdavimui paliekam pirmą kodą kaip „pagrindinį" – analitikai/UI
-    code = codes[0]
-    units_needed = len(codes)  # tiek vienetų bus atskaityta MAKSIMALIAI (gali būti mažiau, jei dalis nežinoma)
+    code = codes[0] if codes else "[NUOTRAUKA]"
+    # Jei tik nuotrauka – preliminariai užtikrinam bent 1 vienetą; tikslus skaičius nustatomas po AI atsakymo
+    units_needed = max(1, len(codes))
 
     # VIN klasifikacija
     is_real_vin = bool(_VIN_RE.match(vin_raw)) if vin_raw else False
 
     # === Free quota patikra (jei NEPRISIJUNGĘS) arba abonemento patikra (jei prisijungęs) ===
     user = await _get_current_user(authorization)
+
+    # Nuotraukos įkėlimas TIK prisijungusiems vartotojams
+    if has_image and not user:
+        raise HTTPException(
+            status_code=401,
+            detail="Nuotraukos įkėlimas prieinamas TIK prisijungusiems vartotojams. Prisijunkite arba užsiregistruokite (nemokamai iki 2026-06-01).",
+        )
+
     db = _get_db()
     quota_info = None
     quota_doc = None
@@ -821,8 +851,12 @@ async def check_error(req: ErrorCheckRequest, request: Request, authorization: s
         raise HTTPException(status_code=500, detail="LLM raktas nesukonfigūruotas.")
 
     eq_label = EQUIPMENT_LABELS[eq]
-    codes_str = ", ".join(codes)
-    user_prompt = f"Technikos tipas: {eq_label}\nKlaidos kodai ({len(codes)} vnt.): {codes_str}"
+    codes_str = ", ".join(codes) if codes else "(NENURODYTI – išgaukite iš nuotraukos)"
+    user_prompt = f"Technikos tipas: {eq_label}"
+    if codes:
+        user_prompt += f"\nKlaidos kodai ({len(codes)} vnt.): {codes_str}"
+    elif has_image:
+        user_prompt += f"\nKlaidos kodai: NEPATEIKTI – PRIVALOMA juos išgauti iš pridėtos nuotraukos (klientas įkėlė skenerio ekrano nuotrauką)."
     if veh:
         user_prompt += f"\nMarkė/modelis/metai: {veh}"
     if vin_raw:
@@ -832,9 +866,20 @@ async def check_error(req: ErrorCheckRequest, request: Request, authorization: s
             user_prompt += f"\nSerijinis numeris: {vin_raw}"
     if fault_desc:
         user_prompt += f"\nKliento aprašyti simptomai: {fault_desc}"
+    if has_image:
+        user_prompt += (
+            "\n\nNUOTRAUKA: prie užklausos pridėta nuotrauka su klaidomis (skenerio ekranas, dashboard ar pan.). "
+            "PRIVALOMA INSTRUKCIJA NUOTRAUKAI:\n"
+            "1) Atidžiai išnagrinėkite VISĄ nuotrauką ir išgaukite VISUS matomus klaidos kodus (iki 10).\n"
+            "2) PRIE KIEKVIENO KODO BŪTINAI nuskaitykite ir aprašymo tekstą, esantį šalia kodo (pvz., 'Forward gear solenoid valve. Current too low' ar 'Coolant temperature sensor. Incorrect or missing CAN message'). Šis aprašymas yra GAMINTOJO oficialus tekstas ir TURI PIRMENYBĘ prieš jūsų bendrą žinojimą apie kodą – jei jūsų žinojimas konfliktuoja su nuotraukoje matomu aprašymu, vadovaukitės nuotraukos tekstu (skenerio aprašymai dažnai būna SPN.FMI gamintojo specifika, kuri skiriasi nuo bendrų OBD-II kodų).\n"
+            "3) Į DiaGO_META known sąrašą įrašykite kodus, kuriuos pamatėte ir kuriems galite atlikti analizę (turite gamintojo aprašymą iš nuotraukos arba savo žinių).\n"
+            "4) Į unknown – tik tuos, kurie nuotraukoje neaiškūs ar netinkami (per neryškūs, nukirpti).\n"
+            "5) Kiekvieno kodo bloke pradžioje paminėkite tikslų aprašymą iš skenerio ekrano (pvz., **Skenerio aprašymas:** \"Forward gear solenoid valve. Current too low\"), tada toliau atlikite pilną analizę pagal struktūrą.\n"
+            "6) Jeigu yra pasikartojimo skaičius (pvz., 'x79' arba 'x46') – tai parodo, kiek kartų klaida pasikartojo; rimtumo vertinimui dažnai pasikartojanti klaida yra svarbesnė, paminėkite tai skiltyje 'Galimos priežastys' ar 'Rekomendacijos'."
+        )
     user_prompt += (
         "\n\nPateik išsamią analizę pagal nurodytą struktūrą. "
-        "PRIVALOMA: pirmoje atsakymo dalyje pateik ## DiaGO_META bloką su known/unknown kodų sąrašais. "
+        "PRIVALOMA: pirmoje atsakymo dalyje pateik ## DiaGO_META bloką su known/unknown kodų sąrašais bei severity_critical/warning/info. "
         "Jei daugiau nei vienas kodas – analizuok juos kartu, susiek susijusius gedimus, atsižvelk į simptomus."
     )
 
@@ -847,10 +892,26 @@ async def check_error(req: ErrorCheckRequest, request: Request, authorization: s
             system_message=ERROR_ANALYZER_PROMPT,
         ).with_model("gemini", "gemini-2.5-pro").with_params(temperature=0.0, top_p=1)
 
-        analysis = await chat.send_message(UserMessage(text=user_prompt))
+        # Sukuriam UserMessage – su nuotrauka, jei pateikta
+        if has_image:
+            try:
+                msg = UserMessage(text=user_prompt, file_contents=[ImageContent(image_base64=img_b64)])
+            except Exception as ie:
+                logger.exception("ImageContent failure")
+                raise HTTPException(status_code=400, detail=f"Nepavyko apdoroti nuotraukos: {str(ie)[:120]}")
+        else:
+            msg = UserMessage(text=user_prompt)
+
+        analysis = await chat.send_message(msg)
 
         # Ištraukiam ir pašalinam DiaGO_META bloką
         analysis, known_codes, unknown_codes_meta, severity_map = _parse_diago_meta(analysis or "")
+
+        # Jei tik nuotrauka (be teksto kodų) – kodų sąrašą formuojam iš AI grąžintų kodų
+        if not codes and (known_codes or unknown_codes_meta):
+            codes = (known_codes + unknown_codes_meta)[:5]
+            if codes:
+                code = codes[0]
 
         # Patikrinam, ar AI pradėjo su `## NEZINOMAS KODAS` (visi kodai nežinomi)
         analysis_stripped = (analysis or "").lstrip()
