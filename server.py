@@ -332,7 +332,7 @@ DIAGO_SYSTEM_PROMPT = """Tu esi DiaGO klientų aptarnavimo konsultantas. DiaGO y
 
 ESMINĖ INFORMACIJA APIE DiaGO:
 - DiaGO teikia DVI atskiras paslaugas su SKIRTINGU technikos palaikymu:
-  1. **Savitarnos diagnostikos stotelės** prie Neste degalinių – TIK AUTOMOBILIAMS (fizinė diagnostika su OBD įrenginiu)
+  1. **Savitarnos diagnostikos stotelės** – TIK AUTOMOBILIAMS (fizinė diagnostika su OBD įrenginiu)
   2. **Internetinė klaidų paieška** svetainėje diago.lt/klaidos – BET KOKIAI TECHNIKAI: automobiliams, motociklams, statybinei technikai (krautuvai, ekskavatoriai), žemės ūkio technikai (traktoriai, kombainai), sandėliavimo technikai (autokrautuvai) ir kt.
 
 🔴 KRITIŠKAI SVARBU – TECHNIKOS APRIBOJIMAI:
@@ -354,7 +354,7 @@ VEIKIANČIOS STOTELĖS:
 - Šiuo metu visos stotelės dar yra paruošimo stadijoje – atidarysime jas artimiausiu metu.
 
 JAU GREITAI (numatomos vietos):
-- Vilnius, Kaunas, Šiauliai, Panevėžys, Klaipėda, Kėdainiai – po vieną stotelę miesto centre, Neste degalinėje
+- Vilnius, Kaunas, Šiauliai, Panevėžys, Klaipėda, Kėdainiai – po vieną stotelę miesto centre
 - Tikslios stotelių vietos bus paskelbtos prieš atidarymą
 - Klientai gali užsisakyti pranešimą apie atidarymą per Pagalbos formą
 
@@ -377,7 +377,7 @@ JAU GREITAI (numatomos vietos):
 - Didesnės įmonės gali aptarti individualų planą
 
 ⚠️ SVARBU NESUPAINIOTI:
-- 299 €/mėn = STOTELIŲ abonementas (fizinei diagnostikai prie Neste, iki 20 automobilių)
+- 299 €/mėn = STOTELIŲ abonementas (fizinei diagnostikai DiaGO stotelėse, iki 20 automobilių)
 - 29 €/mėn = INTERNETINĖS klaidų paieškos abonementas (svetainėje, iki 50 paieškų)
 - Tai DU SKIRTINGI abonementai. Visada pasitikslink su klientu, kuris jam aktualus.
 
@@ -518,9 +518,19 @@ Niekada neminėk žodžių „AI" ar „dirbtinis intelektas" – tiesiog DiaGO.
 SVARBU – TIKSLUMAS:
 - Visada pirmiausia patikrinkite, ar pateiktas kodas tikrai egzistuoja konkrečiam technikos tipui ir gamintojui (P-/U-/B-/C- kodai automobiliams ir komercinei technikai; gamintojo specifiniai kodai – pvz., Linde T-kodai, Caterpillar E-kodai, John Deere DTC ir kt.).
 - Jei kodas yra GAMINTOJO SPECIFINIS – atsižvelkite į konkretų gamintoją ir modelį, NE į bendrinį standarto aprašymą.
-- Jei kodas neegzistuoja, pasenęs arba nežinomas – aiškiai pasakykite: „Šis kodas DiaGO duomenų bazėje neegzistuoja arba yra mažai paplitęs. Rekomenduojame kreiptis į oficialų gamintojo atstovą." NEKURKITE neegzistuojančių aprašymų.
-- Jei kodas yra IŠ KITOS technikos sistemos (pvz., klientas pateikė automobilio kodą krautuvui), pažymėkite tai ir pasiūlykite patikslinti.
+- **JEI KODAS NEEGZISTUOJA, neaiškus, nesusijęs su pateikta technika ar yra rašymo klaida** – ATSAKYMĄ PRIVALU PRADĖTI BŪTENT TOKIA EILUTE (be jokio kito teksto prieš ją):
+  `## NEZINOMAS KODAS`
+  Po šios eilutės paaiškinkite kodėl, ką klientas turėtų padaryti (pvz., tikrinti rašybą, paklausti gamintojo). Šis žymėjimas yra KRITIŠKAS – pagal jį sistema NESKAIČIUOJA šio patikrinimo kaip naudoto.
 - OEM detalių kodus pateikite TIK jei esate įsitikinę dėl tikslumo. Neegzistuojančių dalių kodų neišgalvokite.
+
+TECHNIKOS DUOMENŲ TIKSLINIMAS:
+- Klientas pateikia gamintoją, modelį ir metus. Dažnai daro rašymo klaidų (pvz., „Audy" → „Audi", „bmv" → „BMW", „pasat" → „Passat", „lynde" → „Linde").
+- **JEI ATPAŽĮSTATE rašymo klaidą arba galite tiksliau identifikuoti modelį pagal kodą+kontekstą** – pataisykite tyliai (vidiniame procese) IR pridėkite po pagrindinio atsakymo specialų bloką:
+  ```
+  ## Pataisyta technikos info
+  Pastebėjome, kad turbūt turėjote omenyje: <tiksli markė> <tikslus modelis> <metai>. Analizė atlikta būtent šiai technikai.
+  ```
+  Šis blokas rodomas klientui kaip pastaba virš ataskaitos.
 
 ATSAKYMO FORMATAS (būtina laikytis lygiai šios struktūros):
 
@@ -585,6 +595,7 @@ class ErrorCheckResponse(BaseModel):
     google_search_url: str
     google_images_url: str
     quota: dict | None = None  # { logged_in, unlimited, limit, used, remaining }
+    is_unknown_code: bool = False  # Jei AI pažymėjo kaip nežinomą kodą
 
 
 def _extract_search_query(analysis_text: str, fallback: str) -> str:
@@ -609,12 +620,27 @@ async def check_error(req: ErrorCheckRequest, request: Request, authorization: s
     if eq not in EQUIPMENT_LABELS:
         raise HTTPException(status_code=400, detail="Neteisingas technikos tipas.")
 
-    # === Free quota patikra (jei NEPRISIJUNGĘS) ===
+    # === Free quota patikra (jei NEPRISIJUNGĘS) arba abonemento patikra (jei prisijungęs) ===
     user = await _get_current_user(authorization)
     db = _get_db()
     quota_info = None
     quota_doc = None  # išsaugom referencijai vėliau (count inkrementui)
-    if not user:
+    if user and db is not None:
+        # Patikrinam ar mėnesinis ciklas turi būti reset'intas
+        user = await _maybe_reset_monthly_quota(db, user)
+        if user.get("subscription_active"):
+            sub_quota = int(user.get("subscription_quota", 0))
+            sub_used = int(user.get("subscription_used_this_month", 0))
+            # quota=0 reiškia neribota; >0 reiškia konkretus limitas
+            if sub_quota > 0 and sub_used >= sub_quota:
+                raise HTTPException(
+                    status_code=402,
+                    detail=(
+                        f"Mėnesio abonemento limitas išnaudotas ({sub_used}/{sub_quota}). "
+                        "Limitas atsinaujins kito mėnesio 1 d. arba galite pratęsti abonementą."
+                    ),
+                )
+    elif not user:
         if db is not None:
             ip = request.client.host if request.client else ""
             ip_hash = _hash_ip(ip)
@@ -652,6 +678,11 @@ async def check_error(req: ErrorCheckRequest, request: Request, authorization: s
 
         analysis = await chat.send_message(UserMessage(text=user_prompt))
 
+        # Patikrinam, ar AI pažymėjo kodą kaip nežinomą (## NEZINOMAS KODAS pirmoje eilutėje)
+        analysis_stripped = (analysis or "").lstrip()
+        is_unknown_code = analysis_stripped.upper().startswith("## NEZINOMAS KODAS") \
+                          or analysis_stripped.upper().startswith("##NEZINOMAS KODAS")
+
         fallback_q = f"{code} {eq_label} {veh}".strip()
         search_q = _extract_search_query(analysis, fallback_q)
 
@@ -667,15 +698,31 @@ async def check_error(req: ErrorCheckRequest, request: Request, authorization: s
                     "error_code": code,
                     "equipment": eq,
                     "vehicle_info": veh[:200] if veh else None,
+                    "is_unknown_code": is_unknown_code,
                     "created_at": datetime.now(timezone.utc),
                 })
-                if user:
+                if is_unknown_code:
+                    # Nežinomas kodas – NESKAIČIUOJAM kaip patikrinimo
+                    if user:
+                        quota_info = {"logged_in": True, "unlimited": True, "limit": None,
+                                      "used": user.get("checks_count", 0), "remaining": None,
+                                      "not_charged": True}
+                    elif quota_doc is not None:
+                        used_now = int(quota_doc.get("count", 0))
+                        quota_info = {
+                            "logged_in": False, "unlimited": False, "limit": FREE_QUOTA_LIMIT,
+                            "used": used_now, "remaining": max(0, FREE_QUOTA_LIMIT - used_now),
+                            "not_charged": True,
+                        }
+                elif user:
                     # Užregistruotas vartotojas – tik bendras counter
                     await db.users.update_one(
                         {"user_id": user["user_id"]},
-                        {"$inc": {"checks_count": 1}, "$set": {"last_check_at": datetime.now(timezone.utc)}},
+                        {"$inc": {"checks_count": 1, "subscription_used_this_month": 1},
+                         "$set": {"last_check_at": datetime.now(timezone.utc)}},
                     )
-                    quota_info = {"logged_in": True, "unlimited": True, "limit": None, "used": user.get("checks_count", 0) + 1, "remaining": None}
+                    quota_info = {"logged_in": True, "unlimited": True, "limit": None,
+                                  "used": user.get("checks_count", 0) + 1, "remaining": None}
                 else:
                     # Anonim – inkrementuojam free quota
                     ip = request.client.host if request.client else ""
@@ -696,6 +743,7 @@ async def check_error(req: ErrorCheckRequest, request: Request, authorization: s
             google_search_url=gs,
             google_images_url=gi,
             quota=quota_info,
+            is_unknown_code=is_unknown_code,
         )
     except HTTPException:
         raise
@@ -1024,7 +1072,7 @@ def _ngrams(tokens: list[str], n: int) -> list[str]:
 # Iš anksto numatytos kategorijos – greitas raktažodžių klasifikavimas
 CHAT_CATEGORIES = [
     ("Kainos / mokėjimas", ["kain", "moket", "moke", "pinig", "atsiskait", "pigi", "brangi", "užstat", "uzstat", "diskon", "stripe", "paysera", "akcij", "nuolaid"]),
-    ("Stotelės / vietos", ["stotel", "neste", "vilnius", "kaun", "klaipėd", "klaipėd", "panevėž", "panevez", "šiauli", "siauli", "kėdaini", "kedaini", "vieta", "miest", "adres"]),
+    ("Stotelės / vietos", ["stotel", "vilnius", "kaun", "klaipėd", "klaipėd", "panevėž", "panevez", "šiauli", "siauli", "kėdaini", "kedaini", "vieta", "miest", "adres"]),
     ("Verslo abonementas", ["abonemen", "verslo", "įmon", "imon", "servis", "nuom", "parka", "fleet", "29", "299", "individual", "individuali"]),
     ("Internetinė klaidų paieška", ["internetin", "klaid", "kod", "obd", "p0", "p1", "p2", "p3", "u0", "b0", "c0", "online"]),
     ("Motociklai / kita technika", ["motocikl", "trakto", "kombain", "krautuv", "ekskavato", "statybin", "žemės", "zemes", "sandėl", "sandel"]),
@@ -1274,8 +1322,17 @@ async def auth_me(authorization: str | None = Header(default=None)):
     user = await _get_current_user(authorization)
     if not user:
         raise HTTPException(status_code=401, detail="Nepatvirtinta sesija.")
+    db = _get_db()
+    if db is not None:
+        user = await _maybe_reset_monthly_quota(db, user)
     user.pop("_id", None)
-    return {"user": user}
+    # Pridedam abonemento dienų likučius (kiek dienų iki pabaigos)
+    days_until_renew = None
+    renews_at = user.get("subscription_renews_at")
+    if isinstance(renews_at, datetime):
+        delta = renews_at - datetime.now(timezone.utc)
+        days_until_renew = max(0, delta.days)
+    return {"user": user, "days_until_renew": days_until_renew}
 
 
 @api_router.put("/auth/profile")
@@ -1417,12 +1474,39 @@ async def admin_users_list(limit: int = 100, authorization: str | None = Header(
         {"_id": 0, "password_hash": 0, "password_salt": 0},
     ).sort("created_at", -1).limit(max(1, min(limit, 500)))
     items = await cur.to_list(500)
-    return {"items": items}
+
+    # Pažymim, kurie vartotojai turi neuždarytą (pending) abonemento pratęsimo užklausą
+    try:
+        pending_cur = db.renewal_requests.find({"status": "pending"}, {"_id": 0, "user_id": 1})
+        pending_user_ids = {r.get("user_id") for r in await pending_cur.to_list(1000) if r.get("user_id")}
+    except Exception:
+        pending_user_ids = set()
+    for u in items:
+        u["has_pending_renewal"] = u.get("user_id") in pending_user_ids
+
+    return {"items": items, "pending_renewals_count": len(pending_user_ids)}
 
 
 class AdminResetPasswordRequest(BaseModel):
     user_id: str
     new_password: str
+
+
+class AdminSubscriptionRequest(BaseModel):
+    user_id: str
+    subscription_active: bool
+    subscription_price: float | None = None  # €/mėn
+    subscription_quota: int | None = None    # nemokamų patikrinimų per mėn (0 = neribota)
+    subscription_note: str | None = None
+
+
+def _next_month_first(now: datetime | None = None) -> datetime:
+    """Grąžina kito kalendorinio mėnesio 1 d. 00:00 UTC."""
+    now = now or datetime.now(timezone.utc)
+    if now.month == 12:
+        return datetime(now.year + 1, 1, 1, tzinfo=timezone.utc)
+    return datetime(now.year, now.month + 1, 1, tzinfo=timezone.utc)
+
 
 @api_router.post("/admin/users/reset-password")
 async def admin_users_reset_password(req: AdminResetPasswordRequest, authorization: str | None = Header(default=None)):
@@ -1440,6 +1524,117 @@ async def admin_users_reset_password(req: AdminResetPasswordRequest, authorizati
     if res.matched_count == 0:
         raise HTTPException(status_code=404, detail="Vartotojas nerastas.")
     return {"ok": True}
+
+
+@api_router.post("/admin/users/subscription")
+async def admin_users_subscription(req: AdminSubscriptionRequest, authorization: str | None = Header(default=None)):
+    """Admin'as nustato vartotojo abonementą (varnelę, kainą, mėnesio kvotą)."""
+    _require_admin(authorization)
+    db = _get_db()
+    if db is None:
+        raise HTTPException(status_code=503, detail="DB nepasiekiama.")
+    update = {
+        "subscription_active": bool(req.subscription_active),
+        "subscription_updated_at": datetime.now(timezone.utc),
+    }
+    if req.subscription_active:
+        update["subscription_price"] = max(0.0, float(req.subscription_price or 0))
+        update["subscription_quota"] = max(0, int(req.subscription_quota or 0))
+        update["subscription_renews_at"] = _next_month_first()
+        # Reset'as – aktyvuojant naują abonementą, einamasis mėnuo prasideda nuo 0
+        update["subscription_used_this_month"] = 0
+        if req.subscription_note is not None:
+            update["subscription_note"] = (req.subscription_note or "").strip()[:500]
+    else:
+        # Deaktyvavus – išvalom kvotą, nors istorijos paliekam
+        update["subscription_price"] = 0
+        update["subscription_quota"] = 0
+    res = await db.users.update_one({"user_id": req.user_id}, {"$set": update})
+    if res.matched_count == 0:
+        raise HTTPException(status_code=404, detail="Vartotojas nerastas.")
+    return {"ok": True, "subscription_active": req.subscription_active}
+
+
+class RenewalRequest(BaseModel):
+    note: str | None = None
+
+
+@api_router.post("/auth/renewal-request")
+async def auth_renewal_request(req: RenewalRequest, authorization: str | None = Header(default=None)):
+    """Vartotojas pateikia abonemento pratęsimo užklausą (admin'as ją mato)."""
+    user = await _get_current_user(authorization)
+    if not user:
+        raise HTTPException(status_code=401, detail="Nepatvirtinta sesija.")
+    db = _get_db()
+    if db is None:
+        raise HTTPException(status_code=503, detail="DB nepasiekiama.")
+    await db.renewal_requests.insert_one({
+        "user_id": user["user_id"],
+        "email": user["email"],
+        "current_subscription_active": user.get("subscription_active", False),
+        "current_subscription_price": user.get("subscription_price", 0),
+        "renews_at": user.get("subscription_renews_at"),
+        "note": (req.note or "").strip()[:500],
+        "status": "pending",
+        "created_at": datetime.now(timezone.utc),
+    })
+    return {"ok": True, "message": "Užklausa gauta. Susisieksime artimiausiu metu."}
+
+
+@api_router.get("/admin/renewal-requests")
+async def admin_renewal_requests(limit: int = 100, authorization: str | None = Header(default=None)):
+    _require_admin(authorization)
+    db = _get_db()
+    if db is None:
+        return {"items": [], "db_offline": True}
+    cur = db.renewal_requests.find({}, {"_id": 0}).sort("created_at", -1).limit(max(1, min(limit, 500)))
+    items = await cur.to_list(500)
+    return {"items": items}
+
+
+class RenewalDoneRequest(BaseModel):
+    user_id: str
+
+
+@api_router.post("/admin/renewal-requests/mark-done")
+async def admin_renewal_mark_done(req: RenewalDoneRequest, authorization: str | None = Header(default=None)):
+    """Pažymi visas vartotojo pending pratęsimo užklausas kaip atliktas."""
+    _require_admin(authorization)
+    db = _get_db()
+    if db is None:
+        raise HTTPException(status_code=503, detail="DB nepasiekiama.")
+    res = await db.renewal_requests.update_many(
+        {"user_id": req.user_id, "status": "pending"},
+        {"$set": {"status": "done", "done_at": datetime.now(timezone.utc)}},
+    )
+    return {"ok": True, "updated": res.modified_count}
+
+
+async def _maybe_reset_monthly_quota(db, user: dict) -> dict:
+    """Jei einamasis mėnesinis ciklas baigėsi (subscription_renews_at praeity) – reset'inam kvotą."""
+    if not user or not user.get("subscription_active"):
+        return user
+    renews_at = user.get("subscription_renews_at")
+    if not renews_at:
+        return user
+    if isinstance(renews_at, str):
+        try:
+            renews_at = datetime.fromisoformat(renews_at.replace("Z", "+00:00"))
+        except Exception:
+            return user
+    now = datetime.now(timezone.utc)
+    if renews_at and renews_at <= now:
+        new_renews_at = _next_month_first(now)
+        await db.users.update_one(
+            {"user_id": user["user_id"]},
+            {"$set": {
+                "subscription_renews_at": new_renews_at,
+                "subscription_used_this_month": 0,
+            }},
+        )
+        user["subscription_renews_at"] = new_renews_at
+        user["subscription_used_this_month"] = 0
+    return user
 
 
 async def _ensure_indexes():
