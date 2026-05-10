@@ -535,69 +535,113 @@ VIN/SERIJINIO NUMERIO TAISYKLĖS:
 - Tikras VIN gali padėti tiksliau identifikuoti gamintoją, modelio versiją, variklio kodą; bet jei kliento įvestas markė/modelis prieštarauja VIN kodui – pasižymėkite tai „Pataisyta technikos info" skiltyje.
 
 VIDINIS METADATA BLOKAS (PRIVALOMA):
-PIRMIAUSIA atsakymo viršuje (prieš `## Klaidos paaiškinimas`) pateikite paslėptą bloką šia forma:
+PIRMIAUSIA atsakymo viršuje (prieš bet kokią kitą skiltį) pateikite paslėptą bloką šia forma:
 
 ## DiaGO_META
 known: <atpažintų kodų sąrašas atskirtas kableliais arba palik tuščią>
 unknown: <neatpažintų kodų sąrašas atskirtas kableliais arba palik tuščią>
+severity_critical: <RIMTŲ kodų sąrašas atskirtas kableliais arba tuščia>
+severity_warning: <ĮSPĖJIMŲ kodų sąrašas atskirtas kableliais arba tuščia>
+severity_info: <INFORMACINIŲ kodų sąrašas atskirtas kableliais arba tuščia>
 
-(Sistema šį bloką pašalins prieš rodydama klientui – jis NĖRA matomas vartotojui. Jis naudojamas tik kvotos atskaitymui: viena atpažinta klaida = 1 vienetas, neatpažintos – nemokamos.)
+(Sistema šį bloką pašalins prieš rodydama klientui – jis NĖRA matomas vartotojui. Jis naudojamas: viena atpažinta klaida = 1 kvotos vienetas, neatpažintos – nemokamos. Severity laukai naudojami suvestinės kortelei: rimtos / įspėjimai / informacinės.)
 
 TECHNIKOS DUOMENŲ TIKSLINIMAS:
 - Klientas pateikia gamintoją, modelį ir metus. Dažnai daro rašymo klaidų (pvz., „Audy" → „Audi", „bmv" → „BMW", „pasat" → „Passat", „lynde" → „Linde").
-- **JEI ATPAŽĮSTATE rašymo klaidą arba galite tiksliau identifikuoti modelį pagal kodą+kontekstą** – pataisykite tyliai (vidiniame procese) IR pridėkite po pagrindinio atsakymo specialų bloką:
+- **JEI ATPAŽĮSTATE rašymo klaidą arba galite tiksliau identifikuoti modelį pagal kodą+kontekstą** – pataisykite tyliai (vidiniame procese) IR pridėkite po META bloko šį specialų bloką:
   ```
   ## Pataisyta technikos info
   Pastebėjome, kad turbūt turėjote omenyje: <tiksli markė> <tikslus modelis> <metai>. Analizė atlikta būtent šiai technikai.
   ```
-  Šis blokas rodomas klientui kaip pastaba virš ataskaitos.
 
-ATSAKYMO FORMATAS (būtina laikytis lygiai šios struktūros):
+ATSAKYMO STRUKTŪRA (privaloma):
+
+Jei VIENAS kodas → naudokite paprastą formatą (žr. „Vieno kodo formatas" žemiau).
+Jei DAUGIAU NEI VIENAS kodas → naudokite išplėstą formatą (žr. „Kelių kodų formatas" žemiau).
+
+================================================
+A) VIENO KODO FORMATAS (kai pateiktas tik 1 kodas):
+================================================
 
 ## Klaidos paaiškinimas
-Trumpai (2–3 sakiniai) paaiškinkite, ką reiškia šis klaidos kodas paprasta kalba, be sudėtingų terminų. Jei kodas neegzistuoja arba neaiškus – sąžiningai pasakykite tai.
+Trumpai (2–3 sakiniai) paaiškinkite, ką reiškia šis klaidos kodas paprasta kalba.
 
 ## Galima priežastis
-Išvardinkite 2–4 dažniausias galimas priežastis (kiekvieną kaip atskirą punktą su „•").
+Išvardinkite 2–4 dažniausias galimas priežastis (kiekvieną kaip „•" punktą).
 
 ## Ar saugu važiuoti?
-Vienas iš trijų aiškių atsakymų:
-- ✅ TAIP, saugu — su trumpu paaiškinimu kodėl
-- ⚠️ ATSARGIAI — su nurodymu, ko vengti ir kaip ilgai galima važiuoti
-- 🛑 NE, sustokite — su priežastimi ir veiksmais, kurių imtis
+Vienas iš: ✅ TAIP, saugu / ⚠️ ATSARGIAI / 🛑 NE, sustokite — su trumpu paaiškinimu.
 
 ## Rekomendacijos
-3–5 konkrečių veiksmų sąrašas su „•" (ką patikrinti, kur važiuoti, kokius matavimus atlikti).
+3–5 konkrečių veiksmų sąrašas su „•".
 
 ## Poveikis
-1–2 sakinių aprašymas, kaip ši klaida paveiks techniką (automobilį / motociklą / traktorių / krautuvą / ir kt., priklausomai nuo technikos tipo), jei nebus išspręsta (pvz., „Padidėjęs degalų suvartojimas, gali nepraeiti TA" arba „Krautuvas gali prarasti galią pakėlimo metu").
+1–2 sakinių aprašymas, kaip klaida paveiks techniką, jei nebus išspręsta.
 
 ## Atsargumo priemonės
-1–2 sakinių praktinis patarimas operatoriui ar vairuotojui (pritaikytas pagal technikos tipą, pvz., automobiliui – „Nevažiuoti dideliu greičiu ar ilgais maršrutais kol bus pakeista detalė", krautuvui – „Nekelti maksimalios apkrovos kol bus pašalinta klaida").
+1–2 sakinių praktinis patarimas operatoriui ar vairuotojui.
 
 ## Remonto kaina (orientacinė)
-Pateikite orientacinį remonto kainos diapazoną EUR formatu (pvz., „80–250 €" arba „30–800 €", arba „0–200 € jei vienkartinis"). Skirta tik bendrai informacijai – tikslias kainas pasako autoservisas.
+EUR diapazonas (pvz., „80–250 €").
 
 ## Galimai sugedusi detalė
-Pateikite kuo tikslesnius detalių kodus markdown LENTELE, šia struktūra (be papildomo teksto, tik lentelė):
-
+Markdown LENTELĖ:
 | Detalė | OEM kodas | Gamintojas | Pastaba |
 |---|---|---|---|
-| Lambda zondas (priekinis) | 0258006206 | Bosch | Bendras kodas BMW E46 N42 varikliui |
-| Lambda zondas (galinis) | 0258006537 | Bosch | Diagnostinis, po katalizatoriumi |
+| ... | ... | ... | ... |
 
-SVARBU:
-- Jei žinote tikslų OEM kodą – įrašykite jį be skliaustų, raidžių ar tarpų, lygiai kaip pateikiamas kataloge.
-- Jei kodas priklauso nuo konkretaus modelio/metų, kurio vartotojas nenurodė – stulpelyje "OEM kodas" rašykite TIK „—" (brūkšnį) ir Pastaboje paaiškinkite.
-- Jei TIKRAI neįmanoma nustatyti net detalės pavadinimo (per platus kodas, neaiški klaida) – vietoj lentelės parašykite tik tris žodžius:
-NĖRA TIKSLIŲ KODŲ
+Jei TIKRAI neįmanoma – vietoj lentelės parašykite: NĖRA TIKSLIŲ KODŲ
 
 ## Vieta technikoje
-1–2 sakinių aprašymas, kur fiziškai technikoje (automobilyje, motocikle, traktoriuje, krautuve ir pan., priklausomai nuo konteksto) yra detalė (pvz., „Variklio skyriuje, dešinėje pusėje, prie oro įsiurbimo kolektoriaus" arba „Hidraulinės sistemos linijoje, šalia siurblio"). Šis aprašymas reikalingas, kad klientas suprastų, kur ieškoti.
+1–2 sakiniai – kur fiziškai detalė technikoje.
 
 ## Paieškos užklausa
-Pateikite šią eilutę TIK jei aukščiau lentelėje nėra nė vieno tikslaus OEM kodo (visi „—" arba parašyta „NĖRA TIKSLIŲ KODŲ"). Tokiu atveju vienoje eilutėje pateikite konkrečią paieškos užklausą Google paieškai (pvz., „Toyota RAV4 2010 lambda zondas").
-Jei lentelėje yra bent vienas tikslus OEM kodas – šios skilties NEPATEIKITE arba palikite tuščią.
+Pateikite TIK jei lentelėje nėra OEM kodų. Vienoje eilutėje – Google paieškos užklausa.
+
+================================================
+B) KELIŲ KODŲ FORMATAS (kai pateikta 2–5 kodai):
+================================================
+
+## Bendra apžvalga
+2–4 sakiniai – paaiškinkite, kaip kodai tarpusavyje susiję, kuri pagrindinė problemos šaknis ir kokios sistemos paveiktos. Jei kodai NESUSIJĘ – aiškiai pasakykite tai („Šie kodai nėra tiesiogiai susiję; kiekvienas reikalauja atskiros analizės").
+
+Tada KIEKVIENAM atpažintam kodui pateikite atskirą bloką tokia struktūra:
+
+## Kodas: <KODAS> [<RIMTUMO ŽYMĖ>]
+**Sistema:** <pvz., EGR, Transmisija, Variklio valdymas>
+**Paaiškinimas:** 1–2 sakiniai paprasta kalba.
+**Galimos priežastys:**
+• Priežastis 1
+• Priežastis 2
+**Rekomendacijos:**
+• Veiksmas 1
+• Veiksmas 2
+**Vieta technikoje:** Trumpas aprašymas, kur ieškoti.
+**Orientacinė kaina:** EUR diapazonas.
+
+Rimtumo žymos: 🛑 RIMTA / ⚠️ ĮSPĖJIMAS / ℹ️ INFORMACINĖ. Žymą pridėkite ant tos pačios eilutės su kodu antraštėje (pvz., `## Kodas: P0301 🛑 RIMTA`).
+
+NEŽINOMIEMS kodams atskirų blokų NEKURKITE – tik užfiksuokite juos DiaGO_META unknown sąraše.
+
+Po visų kodų blokų – BENDROS skiltys (apima visus kodus):
+
+## Galimai sugedusios detalės
+Vienoje BENDROJE lentelėje pateikite detales VISIEMS atpažintiems kodams. Pridėkite stulpelį „Susijęs kodas":
+
+| Detalė | OEM kodas | Gamintojas | Pastaba | Susijęs kodas |
+|---|---|---|---|---|
+| ... | ... | ... | ... | P0301 |
+
+Jei TIKRAI neįmanoma – parašykite: NĖRA TIKSLIŲ KODŲ
+
+## Bendra išvada ir prioritetai
+**Prioritetas Nr. 1:** <kuri klaida turi būti taisoma pirmiausia ir kodėl, su konkrečiu kodu>
+**Prioritetas Nr. 2:** <antra prioriteto klaida ir kodėl, jei reikia>
+**Ar saugu naudoti dabar:** Vienas iš: ✅ TAIP / ⚠️ ATSARGIAI / 🛑 NE — su 1–2 sakinių paaiškinimu, atsižvelgiant į VISŲ kodų rimtumą bendrai.
+**Bendra orientacinė remonto kaina:** Pateikite SUMĄ pridėjus visų atskirų kodų kainų diapazonus (pvz., jei kodas A = 80–250 € ir kodas B = 200–800 €, bendra suma = 280–1050 €). Pateikite vienoje eilutėje EUR formatu.
+
+## Paieškos užklausa
+Pateikite TIK jei „Galimai sugedusios detalės" lentelėje nėra nė vieno tikslaus OEM kodo. Vienoje eilutėje – konkreti Google paieškos užklausa.
 """
 
 
@@ -621,6 +665,7 @@ class ErrorCheckResponse(BaseModel):
     codes: list[str] | None = None  # visi įvesti kodai
     known_codes: list[str] | None = None  # AI atpažinti kodai
     unknown_codes: list[str] | None = None  # AI nežinomi kodai
+    severity_map: dict[str, str] | None = None  # {kodas: 'critical'|'warning'|'info'}
     deducted_units: int = 0  # kiek kvotos vienetų atskaityta (=len(known_codes))
 
 
@@ -658,16 +703,20 @@ def _parse_codes(raw: str, max_codes: int = 5) -> list[str]:
     return out
 
 
-def _parse_diago_meta(analysis: str) -> tuple[str, list[str], list[str]]:
+def _parse_diago_meta(analysis: str) -> tuple[str, list[str], list[str], dict]:
     """
-    Iš atsakymo ištraukia DiaGO_META bloką ir grąžina (švarus_atsakymas, known_codes, unknown_codes).
+    Iš atsakymo ištraukia DiaGO_META bloką ir grąžina (švarus_atsakymas, known_codes, unknown_codes, severity_map).
+    severity_map: { "P0420": "warning", "P0301": "critical", ... }
     Bloko pavyzdys:
       ## DiaGO_META
       known: P0420, P0301
       unknown: XXXX99
+      severity_critical: P0301
+      severity_warning: P0420
+      severity_info:
     """
     if not analysis:
-        return analysis or "", [], []
+        return analysis or "", [], [], {}
     m = re.search(
         r"##\s*DiaGO[_\s-]?META\s*\n+(.*?)(?=\n##\s|$)",
         analysis,
@@ -675,17 +724,26 @@ def _parse_diago_meta(analysis: str) -> tuple[str, list[str], list[str]]:
     )
     known: list[str] = []
     unknown: list[str] = []
+    severity: dict[str, str] = {}
     if m:
         block = m.group(1)
-        kk = re.search(r"known\s*:\s*([^\n]*)", block, re.IGNORECASE)
-        uu = re.search(r"unknown\s*:\s*([^\n]*)", block, re.IGNORECASE)
-        if kk:
-            known = [c.strip().upper() for c in re.split(r"[,\s;]+", kk.group(1)) if c.strip()]
-        if uu:
-            unknown = [c.strip().upper() for c in re.split(r"[,\s;]+", uu.group(1)) if c.strip()]
+        def _parse_line(label: str) -> list[str]:
+            # SVARBU: naudojam `[ \t]*` (tik tarpai/tab), ne `\s*`, kad neapimtų newline
+            mm = re.search(rf"^[ \t]*{label}[ \t]*:[ \t]*([^\n]*)", block, re.IGNORECASE | re.MULTILINE)
+            if not mm:
+                return []
+            return [c.strip().upper() for c in re.split(r"[,\s;]+", mm.group(1)) if c.strip()]
+        known = _parse_line("known")
+        unknown = _parse_line("unknown")
+        for c in _parse_line("severity_critical"):
+            severity[c] = "critical"
+        for c in _parse_line("severity_warning"):
+            severity[c] = "warning"
+        for c in _parse_line("severity_info"):
+            severity[c] = "info"
         # Pašalinam meta bloką iš atsakymo (kad vartotojas nematytų)
         analysis = analysis.replace(m.group(0), "").lstrip()
-    return analysis, known, unknown
+    return analysis, known, unknown, severity
 
 
 @api_router.post("/check-error", response_model=ErrorCheckResponse)
@@ -792,7 +850,7 @@ async def check_error(req: ErrorCheckRequest, request: Request, authorization: s
         analysis = await chat.send_message(UserMessage(text=user_prompt))
 
         # Ištraukiam ir pašalinam DiaGO_META bloką
-        analysis, known_codes, unknown_codes_meta = _parse_diago_meta(analysis or "")
+        analysis, known_codes, unknown_codes_meta, severity_map = _parse_diago_meta(analysis or "")
 
         # Patikrinam, ar AI pradėjo su `## NEZINOMAS KODAS` (visi kodai nežinomi)
         analysis_stripped = (analysis or "").lstrip()
@@ -920,6 +978,7 @@ async def check_error(req: ErrorCheckRequest, request: Request, authorization: s
             codes=codes,
             known_codes=known_codes_list,
             unknown_codes=unknown_codes_list,
+            severity_map={c: severity_map.get(c, "info") for c in known_codes_list},
             deducted_units=deducted,
         )
     except HTTPException:
