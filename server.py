@@ -521,10 +521,27 @@ Atsakyk TIK remdamasis oficialiais gamintojo klaidų kodų žinynais (OEM servic
 SVARBU – TIKSLUMAS:
 - Visada pirmiausia patikrinkite, ar pateiktas kodas tikrai egzistuoja konkrečiam technikos tipui ir gamintojui (P-/U-/B-/C- kodai automobiliams ir komercinei technikai; gamintojo specifiniai kodai – pvz., Linde T-kodai, Caterpillar E-kodai, John Deere DTC ir kt.).
 - Jei kodas yra GAMINTOJO SPECIFINIS – atsižvelkite į konkretų gamintoją ir modelį, NE į bendrinį standarto aprašymą.
-- **JEI KODAS NEEGZISTUOJA, neaiškus, nesusijęs su pateikta technika ar yra rašymo klaida** – ATSAKYMĄ PRIVALU PRADĖTI BŪTENT TOKIA EILUTE (be jokio kito teksto prieš ją):
-  `## NEZINOMAS KODAS`
-  Po šios eilutės paaiškinkite kodėl, ką klientas turėtų padaryti (pvz., tikrinti rašybą, paklausti gamintojo). Šis žymėjimas yra KRITIŠKAS – pagal jį sistema NESKAIČIUOJA šio patikrinimo kaip naudoto.
+- **JEI KODAS NEEGZISTUOJA, neaiškus, nesusijęs su pateikta technika ar yra rašymo klaida** – tas konkretus kodas turi būti pažymėtas kaip nežinomas DiaGO_META bloke (žr. žemiau). Jei VISI įvesti kodai yra nežinomi – pradėkite atsakymą būtent eilute `## NEZINOMAS KODAS` (be jokio kito teksto prieš ją), po to paaiškinkite kodėl ir ką klientas turėtų padaryti. Šis žymėjimas yra KRITIŠKAS – pagal jį sistema NESKAIČIUOJA tų patikrinimų kaip naudotų.
 - OEM detalių kodus pateikite TIK jei esate įsitikinę dėl tikslumo. Neegzistuojančių dalių kodų neišgalvokite.
+
+KELIŲ KODŲ ANALIZĖ (svarbiausia):
+- Klientas gali įvesti kelis (iki 5) kodus vienu metu, kableliais atskirtus (pvz., „P0301, P0171, P0420").
+- Analizuokite VISUS kodus VIENOJE bendroje ataskaitoje – susiekite juos, jei jie tarpusavyje susiję (pvz., P0301 + P0171 dažnai kartu rodo degalų sistemos arba uždegimo sistemos problemą; tokiu atveju paminėkite tai „Galima priežastis" skiltyje).
+- Jei klientas pateikia ir gedimo simptomų aprašymą – privaloma jį panaudoti analizėje (jis dažnai padeda atskirti, kuri iš galimų priežasčių labiausiai tikėtina).
+- Jei pateiktas VIN ar serijinis numeris – jį galite panaudoti tik kaip pagalbą identifikuojant tikslesnį modelį/variklį (pvz., VIN 4–8 simboliai dažnai koduoja gamintoją ir modelio versiją). Niekada neskelbkite paties VIN'o atsakyme (privatumas).
+
+VIN/SERIJINIO NUMERIO TAISYKLĖS:
+- Jei VIN turi ≠17 simbolių arba turi raides I/O/Q – traktuokite kaip serijinį numerį, ne VIN.
+- Tikras VIN gali padėti tiksliau identifikuoti gamintoją, modelio versiją, variklio kodą; bet jei kliento įvestas markė/modelis prieštarauja VIN kodui – pasižymėkite tai „Pataisyta technikos info" skiltyje.
+
+VIDINIS METADATA BLOKAS (PRIVALOMA):
+PIRMIAUSIA atsakymo viršuje (prieš `## Klaidos paaiškinimas`) pateikite paslėptą bloką šia forma:
+
+## DiaGO_META
+known: <atpažintų kodų sąrašas atskirtas kableliais arba palik tuščią>
+unknown: <neatpažintų kodų sąrašas atskirtas kableliais arba palik tuščią>
+
+(Sistema šį bloką pašalins prieš rodydama klientui – jis NĖRA matomas vartotojui. Jis naudojamas tik kvotos atskaitymui: viena atpažinta klaida = 1 vienetas, neatpažintos – nemokamos.)
 
 TECHNIKOS DUOMENŲ TIKSLINIMAS:
 - Klientas pateikia gamintoją, modelį ir metus. Dažnai daro rašymo klaidų (pvz., „Audy" → „Audi", „bmv" → „BMW", „pasat" → „Passat", „lynde" → „Linde").
@@ -587,9 +604,11 @@ Jei lentelėje yra bent vienas tikslus OEM kodas – šios skilties NEPATEIKITE 
 class ErrorCheckRequest(BaseModel):
     session_id: str
     equipment_type: str
-    error_code: str
+    error_code: str  # vienas kodas arba keli kableliais atskirti (max 5)
     vehicle_info: str | None = None
     visitor_id: str | None = None  # nemokamų užklausų sekiojimui
+    vin: str | None = None  # neprivaloma – VIN arba serijinis numeris (max 50)
+    fault_description: str | None = None  # neprivaloma – simptomų aprašymas (max 500)
 
 
 class ErrorCheckResponse(BaseModel):
@@ -597,8 +616,12 @@ class ErrorCheckResponse(BaseModel):
     search_query: str
     google_search_url: str
     google_images_url: str
-    quota: dict | None = None  # { logged_in, unlimited, limit, used, remaining }
-    is_unknown_code: bool = False  # Jei AI pažymėjo kaip nežinomą kodą
+    quota: dict | None = None  # { logged_in, unlimited, limit, used, remaining, deducted }
+    is_unknown_code: bool = False  # true, jei VISI įvesti kodai pažymėti kaip nežinomi
+    codes: list[str] | None = None  # visi įvesti kodai
+    known_codes: list[str] | None = None  # AI atpažinti kodai
+    unknown_codes: list[str] | None = None  # AI nežinomi kodai
+    deducted_units: int = 0  # kiek kvotos vienetų atskaityta (=len(known_codes))
 
 
 def _extract_search_query(analysis_text: str, fallback: str) -> str:
@@ -610,37 +633,104 @@ def _extract_search_query(analysis_text: str, fallback: str) -> str:
     return fallback
 
 
+_VIN_RE = re.compile(r"^[A-HJ-NPR-Z0-9]{17}$", re.IGNORECASE)
+
+
+def _parse_codes(raw: str, max_codes: int = 5) -> list[str]:
+    """Iš teksto su kableliais ištraukia unikalius kodus didžiosiomis raidėmis (max N)."""
+    if not raw:
+        return []
+    parts = re.split(r"[,\s;]+", raw.strip())
+    seen = set()
+    out: list[str] = []
+    for p in parts:
+        c = p.strip().upper()
+        if not c:
+            continue
+        if len(c) > 40:
+            continue
+        if c in seen:
+            continue
+        seen.add(c)
+        out.append(c)
+        if len(out) >= max_codes:
+            break
+    return out
+
+
+def _parse_diago_meta(analysis: str) -> tuple[str, list[str], list[str]]:
+    """
+    Iš atsakymo ištraukia DiaGO_META bloką ir grąžina (švarus_atsakymas, known_codes, unknown_codes).
+    Bloko pavyzdys:
+      ## DiaGO_META
+      known: P0420, P0301
+      unknown: XXXX99
+    """
+    if not analysis:
+        return analysis or "", [], []
+    m = re.search(
+        r"##\s*DiaGO[_\s-]?META\s*\n+(.*?)(?=\n##\s|$)",
+        analysis,
+        re.IGNORECASE | re.DOTALL,
+    )
+    known: list[str] = []
+    unknown: list[str] = []
+    if m:
+        block = m.group(1)
+        kk = re.search(r"known\s*:\s*([^\n]*)", block, re.IGNORECASE)
+        uu = re.search(r"unknown\s*:\s*([^\n]*)", block, re.IGNORECASE)
+        if kk:
+            known = [c.strip().upper() for c in re.split(r"[,\s;]+", kk.group(1)) if c.strip()]
+        if uu:
+            unknown = [c.strip().upper() for c in re.split(r"[,\s;]+", uu.group(1)) if c.strip()]
+        # Pašalinam meta bloką iš atsakymo (kad vartotojas nematytų)
+        analysis = analysis.replace(m.group(0), "").lstrip()
+    return analysis, known, unknown
+
+
 @api_router.post("/check-error", response_model=ErrorCheckResponse)
 async def check_error(req: ErrorCheckRequest, request: Request, authorization: str | None = Header(default=None)):
-    code = (req.error_code or "").strip().upper()
+    raw_codes = (req.error_code or "").strip()
     eq = (req.equipment_type or "").strip().lower()
     veh = (req.vehicle_info or "").strip()
+    vin_raw = (req.vin or "").strip().upper()[:50]
+    fault_desc = (req.fault_description or "").strip()[:500]
 
-    if not code:
+    if not raw_codes:
         raise HTTPException(status_code=400, detail="Klaidos kodas tuščias.")
-    if len(code) > 40:
-        raise HTTPException(status_code=400, detail="Klaidos kodas per ilgas.")
     if eq not in EQUIPMENT_LABELS:
         raise HTTPException(status_code=400, detail="Neteisingas technikos tipas.")
+
+    codes = _parse_codes(raw_codes, max_codes=5)
+    if not codes:
+        raise HTTPException(status_code=400, detail="Nepavyko atpažinti nė vieno klaidos kodo.")
+    if len(codes) > 5:
+        codes = codes[:5]
+
+    # Vienam užklausos atvaizdavimui paliekam pirmą kodą kaip „pagrindinį" – analitikai/UI
+    code = codes[0]
+    units_needed = len(codes)  # tiek vienetų bus atskaityta MAKSIMALIAI (gali būti mažiau, jei dalis nežinoma)
+
+    # VIN klasifikacija
+    is_real_vin = bool(_VIN_RE.match(vin_raw)) if vin_raw else False
 
     # === Free quota patikra (jei NEPRISIJUNGĘS) arba abonemento patikra (jei prisijungęs) ===
     user = await _get_current_user(authorization)
     db = _get_db()
     quota_info = None
-    quota_doc = None  # išsaugom referencijai vėliau (count inkrementui)
+    quota_doc = None
     if user and db is not None:
-        # Patikrinam ar mėnesinis ciklas turi būti reset'intas
         user = await _maybe_reset_monthly_quota(db, user)
         if user.get("subscription_active"):
             sub_quota = int(user.get("subscription_quota", 0))
             sub_used = int(user.get("subscription_used_this_month", 0))
-            # quota=0 reiškia neribota; >0 reiškia konkretus limitas
-            if sub_quota > 0 and sub_used >= sub_quota:
+            if sub_quota > 0 and (sub_used + units_needed) > sub_quota:
+                remaining_slots = max(0, sub_quota - sub_used)
                 raise HTTPException(
                     status_code=402,
                     detail=(
-                        f"Mėnesio abonemento limitas išnaudotas ({sub_used}/{sub_quota}). "
-                        "Limitas atsinaujins kito mėnesio 1 d. arba galite pratęsti abonementą."
+                        f"Įvedėte {units_needed} kodus, bet abonemento limite liko tik {remaining_slots} "
+                        f"({sub_used}/{sub_quota}). Sumažinkite kodų skaičių arba pratęskite abonementą."
                     ),
                 )
     elif not user:
@@ -650,13 +740,21 @@ async def check_error(req: ErrorCheckRequest, request: Request, authorization: s
             visitor_id = (req.visitor_id or "").strip()[:64]
             quota_doc = await _get_or_create_quota(db, ip_hash, visitor_id)
             used = int(quota_doc.get("count", 0))
-            if used >= FREE_QUOTA_LIMIT:
-                # Peržengta riba – siūlom prisiregistruoti
+            if (used + units_needed) > FREE_QUOTA_LIMIT:
+                remaining_slots = max(0, FREE_QUOTA_LIMIT - used)
+                if remaining_slots == 0:
+                    raise HTTPException(
+                        status_code=402,
+                        detail=(
+                            f"Išnaudoti visi {FREE_QUOTA_LIMIT} nemokami patikrinimai. "
+                            "Prašome prisiregistruoti nemokamai (iki 2026-06-01) – tęskite naudojimąsi be ribų."
+                        ),
+                    )
                 raise HTTPException(
                     status_code=402,
                     detail=(
-                        f"Išnaudoti visi {FREE_QUOTA_LIMIT} nemokami patikrinimai. "
-                        "Prašome prisiregistruoti nemokamai (iki 2026-06-01) – tęskite naudojimąsi be ribų."
+                        f"Įvedėte {units_needed} kodus, bet nemokamame likime liko tik {remaining_slots} "
+                        f"({used}/{FREE_QUOTA_LIMIT}). Sumažinkite kodų skaičių arba prisiregistruokite."
                     ),
                 )
 
@@ -665,10 +763,22 @@ async def check_error(req: ErrorCheckRequest, request: Request, authorization: s
         raise HTTPException(status_code=500, detail="LLM raktas nesukonfigūruotas.")
 
     eq_label = EQUIPMENT_LABELS[eq]
-    user_prompt = f"Technikos tipas: {eq_label}\nKlaidos kodas: {code}"
+    codes_str = ", ".join(codes)
+    user_prompt = f"Technikos tipas: {eq_label}\nKlaidos kodai ({len(codes)} vnt.): {codes_str}"
     if veh:
-        user_prompt += f"\nPapildoma informacija (markė/modelis/metai): {veh}"
-    user_prompt += "\n\nPateik išsamią analizę pagal nurodytą struktūrą."
+        user_prompt += f"\nMarkė/modelis/metai: {veh}"
+    if vin_raw:
+        if is_real_vin:
+            user_prompt += f"\nVIN (17 simb., naudokite tik vidiniam tikslinimui, neminėkite atsakyme): {vin_raw}"
+        else:
+            user_prompt += f"\nSerijinis numeris: {vin_raw}"
+    if fault_desc:
+        user_prompt += f"\nKliento aprašyti simptomai: {fault_desc}"
+    user_prompt += (
+        "\n\nPateik išsamią analizę pagal nurodytą struktūrą. "
+        "PRIVALOMA: pirmoje atsakymo dalyje pateik ## DiaGO_META bloką su known/unknown kodų sąrašais. "
+        "Jei daugiau nei vienas kodas – analizuok juos kartu, susiek susijusius gedimus, atsižvelk į simptomus."
+    )
 
     sid = (req.session_id or "err-default").strip() or "err-default"
 
@@ -681,64 +791,124 @@ async def check_error(req: ErrorCheckRequest, request: Request, authorization: s
 
         analysis = await chat.send_message(UserMessage(text=user_prompt))
 
-        # Patikrinam, ar AI pažymėjo kodą kaip nežinomą (## NEZINOMAS KODAS pirmoje eilutėje)
-        analysis_stripped = (analysis or "").lstrip()
-        is_unknown_code = analysis_stripped.upper().startswith("## NEZINOMAS KODAS") \
-                          or analysis_stripped.upper().startswith("##NEZINOMAS KODAS")
+        # Ištraukiam ir pašalinam DiaGO_META bloką
+        analysis, known_codes, unknown_codes_meta = _parse_diago_meta(analysis or "")
 
-        fallback_q = f"{code} {eq_label} {veh}".strip()
+        # Patikrinam, ar AI pradėjo su `## NEZINOMAS KODAS` (visi kodai nežinomi)
+        analysis_stripped = (analysis or "").lstrip()
+        all_unknown_marker = analysis_stripped.upper().startswith("## NEZINOMAS KODAS") \
+                             or analysis_stripped.upper().startswith("##NEZINOMAS KODAS")
+
+        # Apibendriname known/unknown
+        codes_set = {c.upper() for c in codes}
+        known_set = {c for c in known_codes if c in codes_set}
+        unknown_set = {c for c in unknown_codes_meta if c in codes_set}
+        # Jei meta nepateikta arba tuščia – fallback
+        if not known_set and not unknown_set:
+            if all_unknown_marker:
+                unknown_set = set(codes)
+            else:
+                known_set = set(codes)
+        # Sutvarkome – jeigu kodų sąraše yra dubliuotų ar trūkstamų
+        for c in codes:
+            if c not in known_set and c not in unknown_set:
+                # AI nepasakė – traktuojame kaip žinomą (fail-safe)
+                known_set.add(c)
+
+        known_codes_list = [c for c in codes if c in known_set]
+        unknown_codes_list = [c for c in codes if c in unknown_set]
+        deducted = len(known_codes_list)
+        is_unknown_code = (deducted == 0)
+
+        fallback_q = f"{codes_str} {eq_label} {veh}".strip()
         search_q = _extract_search_query(analysis, fallback_q)
 
         gs = "https://www.google.com/search?q=" + quote_plus(search_q)
         gi = "https://www.google.com/search?tbm=isch&q=" + quote_plus(search_q)
 
-        # Log į DB analitikai + quota inkrementas
+        # Log į DB analitikai (vienas įrašas per kodą) + quota inkrementas
         if db is not None:
             try:
-                await db.error_checks.insert_one({
-                    "session_id": sid,
-                    "user_id": user.get("user_id") if user else None,
-                    "error_code": code,
-                    "equipment": eq,
-                    "vehicle_info": veh[:200] if veh else None,
-                    "is_unknown_code": is_unknown_code,
-                    "created_at": datetime.now(timezone.utc),
-                })
-                if is_unknown_code:
-                    # Nežinomas kodas – NESKAIČIUOJAM kaip patikrinimo
+                now = datetime.now(timezone.utc)
+                # Įrašome kiekvieną kodą atskirai analitikai
+                docs = []
+                for c in codes:
+                    docs.append({
+                        "session_id": sid,
+                        "user_id": user.get("user_id") if user else None,
+                        "error_code": c,
+                        "equipment": eq,
+                        "vehicle_info": veh[:200] if veh else None,
+                        "vin_provided": bool(vin_raw),
+                        "is_vin": is_real_vin,
+                        "fault_description_provided": bool(fault_desc),
+                        "is_unknown_code": c in unknown_set,
+                        "batch_size": len(codes),
+                        "created_at": now,
+                    })
+                if docs:
+                    await db.error_checks.insert_many(docs)
+
+                # Kvotos atskaitymas tik už atpažintus kodus
+                if deducted > 0:
                     if user:
-                        quota_info = {"logged_in": True, "unlimited": True, "limit": None,
-                                      "used": user.get("checks_count", 0), "remaining": None,
-                                      "not_charged": True}
+                        await db.users.update_one(
+                            {"user_id": user["user_id"]},
+                            {"$inc": {"checks_count": deducted, "subscription_used_this_month": deducted},
+                             "$set": {"last_check_at": now}},
+                        )
+                        new_used = int(user.get("subscription_used_this_month", 0)) + deducted
+                        sub_quota = int(user.get("subscription_quota", 0))
+                        quota_info = {
+                            "logged_in": True,
+                            "unlimited": (sub_quota == 0),
+                            "limit": sub_quota or None,
+                            "used": new_used,
+                            "remaining": max(0, sub_quota - new_used) if sub_quota > 0 else None,
+                            "deducted": deducted,
+                        }
+                    else:
+                        ip = request.client.host if request.client else ""
+                        ip_hash = _hash_ip(ip)
+                        visitor_id = (req.visitor_id or "").strip()[:64]
+                        for _ in range(deducted):
+                            await _increment_quota(db, ip_hash, visitor_id)
+                        new_used = int(quota_doc.get("count", 0)) + deducted if quota_doc else deducted
+                        quota_info = {
+                            "logged_in": False,
+                            "unlimited": False,
+                            "limit": FREE_QUOTA_LIMIT,
+                            "used": new_used,
+                            "remaining": max(0, FREE_QUOTA_LIMIT - new_used),
+                            "deducted": deducted,
+                        }
+                else:
+                    # Nebuvo atskaityta nieko – visi kodai nežinomi
+                    if user:
+                        sub_quota = int(user.get("subscription_quota", 0))
+                        sub_used = int(user.get("subscription_used_this_month", 0))
+                        quota_info = {
+                            "logged_in": True,
+                            "unlimited": (sub_quota == 0),
+                            "limit": sub_quota or None,
+                            "used": sub_used,
+                            "remaining": max(0, sub_quota - sub_used) if sub_quota > 0 else None,
+                            "deducted": 0,
+                            "not_charged": True,
+                        }
                     elif quota_doc is not None:
                         used_now = int(quota_doc.get("count", 0))
                         quota_info = {
-                            "logged_in": False, "unlimited": False, "limit": FREE_QUOTA_LIMIT,
-                            "used": used_now, "remaining": max(0, FREE_QUOTA_LIMIT - used_now),
+                            "logged_in": False,
+                            "unlimited": False,
+                            "limit": FREE_QUOTA_LIMIT,
+                            "used": used_now,
+                            "remaining": max(0, FREE_QUOTA_LIMIT - used_now),
+                            "deducted": 0,
                             "not_charged": True,
                         }
-                elif user:
-                    # Užregistruotas vartotojas – tik bendras counter
-                    await db.users.update_one(
-                        {"user_id": user["user_id"]},
-                        {"$inc": {"checks_count": 1, "subscription_used_this_month": 1},
-                         "$set": {"last_check_at": datetime.now(timezone.utc)}},
-                    )
-                    quota_info = {"logged_in": True, "unlimited": True, "limit": None,
-                                  "used": user.get("checks_count", 0) + 1, "remaining": None}
-                else:
-                    # Anonim – inkrementuojam free quota
-                    ip = request.client.host if request.client else ""
-                    ip_hash = _hash_ip(ip)
-                    visitor_id = (req.visitor_id or "").strip()[:64]
-                    await _increment_quota(db, ip_hash, visitor_id)
-                    new_used = int(quota_doc.get("count", 0)) + 1 if quota_doc else 1
-                    quota_info = {
-                        "logged_in": False, "unlimited": False, "limit": FREE_QUOTA_LIMIT,
-                        "used": new_used, "remaining": max(0, FREE_QUOTA_LIMIT - new_used),
-                    }
             except Exception:
-                pass
+                logger.exception("error_checks logging failed")
 
         return ErrorCheckResponse(
             analysis=analysis,
@@ -747,6 +917,10 @@ async def check_error(req: ErrorCheckRequest, request: Request, authorization: s
             google_images_url=gi,
             quota=quota_info,
             is_unknown_code=is_unknown_code,
+            codes=codes,
+            known_codes=known_codes_list,
+            unknown_codes=unknown_codes_list,
+            deducted_units=deducted,
         )
     except HTTPException:
         raise
