@@ -1225,12 +1225,24 @@ async def check_error(req: ErrorCheckRequest, request: Request, authorization: s
         if db is not None:
             try:
                 now = datetime.now(timezone.utc)
+
+                # Sukuriame report_id PRIEŠ saugant error_checks, kad galėtume susieti
+                report_id_out = None
+                if user:
+                    try:
+                        import secrets as _secrets
+                        report_id_out = _secrets.token_urlsafe(12)  # ~16 simbolių, unikalus
+                    except Exception:
+                        report_id_out = None
+
                 # Įrašome kiekvieną kodą atskirai analitikai
                 docs = []
                 for c in codes:
                     docs.append({
                         "session_id": sid,
                         "user_id": user.get("user_id") if user else None,
+                        "user_email": user.get("email") if user else None,
+                        "report_id": report_id_out,  # susieta su ataskaita (jei yra)
                         "error_code": c,
                         "equipment": eq,
                         "vehicle_info": veh[:200] if veh else None,
@@ -1245,11 +1257,8 @@ async def check_error(req: ErrorCheckRequest, request: Request, authorization: s
                     await db.error_checks.insert_many(docs)
 
                 # Saugome PILNĄ ataskaitą tik PRISIJUNGUSIEMS vartotojams su 14 d. galiojimu
-                report_id_out = None
-                if user:
+                if user and report_id_out:
                     try:
-                        import secrets
-                        report_id_out = secrets.token_urlsafe(12)  # ~16 simbolių, unikalus
                         expires_at = now + timedelta(days=14)
                         await db.error_reports.insert_one({
                             "report_id": report_id_out,
