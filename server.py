@@ -2432,13 +2432,57 @@ async def admin_test_smtp(to: str | None = None, authorization: str | None = Hea
     subject = "DiaGO SMTP testinis laiškas"
     html = f"<p>Sveiki!</p><p>Tai testinis laiškas iš DiaGO backend.</p><p>Jei jį gavote – SMTP konfigūracija veikia ✓</p><p style='color:#888;font-size:11px;'>UTC: {datetime.now(timezone.utc).isoformat()}</p>"
     plain = f"DiaGO SMTP testinis laiškas. Jei gavote – konfigūracija veikia.\nUTC: {datetime.now(timezone.utc).isoformat()}"
-    try:
-        ok = await _send_email(target, subject, html, plain)
-        info["test_send"] = f"✓ Sėkmingai išsiųsta į {target}" if ok else f"✗ Nepavyko išsiųsti į {target} – patikrinkite Render.com logus"
-        info["test_send_ok"] = ok
-    except Exception as e:
-        info["test_send"] = f"✗ Klaida: {type(e).__name__}: {str(e)[:300]}"
+
+    # Bandome siųsti TIESIOGIAI (be _send_email helper'io), kad gautume tikslią klaidą
+    if aiosmtplib is None:
+        info["test_send"] = "✗ aiosmtplib biblioteka neįdiegta"
         info["test_send_ok"] = False
+        return info
+
+    msg = EmailMessage()
+    msg["From"] = f"{cfg['from_name']} <{cfg['user']}>"
+    msg["To"] = target
+    msg["Subject"] = subject
+    msg.set_content(plain)
+    msg.add_alternative(html, subtype="html")
+
+    error_detail = None
+    try:
+        if cfg["use_ssl"]:
+            await aiosmtplib.send(msg, hostname=cfg["host"], port=cfg["port"],
+                username=cfg["user"], password=cfg["password"],
+                use_tls=True, timeout=25)
+        else:
+            await aiosmtplib.send(msg, hostname=cfg["host"], port=cfg["port"],
+                username=cfg["user"], password=cfg["password"],
+                start_tls=True, timeout=25)
+        info["test_send"] = f"✓ Sėkmingai išsiųsta į {target}"
+        info["test_send_ok"] = True
+    except Exception as e:
+        error_detail = f"{type(e).__name__}: {str(e)[:400]}"
+        info["test_send"] = f"✗ KLAIDA: {error_detail}"
+        info["test_send_ok"] = False
+        info["error_class"] = type(e).__name__
+        info["error_message"] = str(e)[:600]
+
+    # Papildomai - bandom alternatyvius portus, jei pirmas nepavyko
+    if not info.get("test_send_ok"):
+        info["fallback_tests"] = []
+        for fallback_port, fallback_ssl in [(465, True), (25, False)]:
+            if fallback_port == cfg["port"]:
+                continue
+            try:
+                if fallback_ssl:
+                    await aiosmtplib.send(msg, hostname=cfg["host"], port=fallback_port,
+                        username=cfg["user"], password=cfg["password"],
+                        use_tls=True, timeout=15)
+                else:
+                    await aiosmtplib.send(msg, hostname=cfg["host"], port=fallback_port,
+                        username=cfg["user"], password=cfg["password"],
+                        start_tls=True, timeout=15)
+                info["fallback_tests"].append(f"✓ Port {fallback_port} ({'SSL' if fallback_ssl else 'STARTTLS'}): VEIKIA – nurodykite SMTP_PORT={fallback_port}" + (f", SMTP_USE_SSL=true" if fallback_ssl else ""))
+            except Exception as fe:
+                info["fallback_tests"].append(f"✗ Port {fallback_port}: {type(fe).__name__}: {str(fe)[:150]}")
     return info
 
 
