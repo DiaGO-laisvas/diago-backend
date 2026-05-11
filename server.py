@@ -1950,6 +1950,7 @@ class ProfileUpdateRequest(BaseModel):
     company_code: str | None = None
     vat_code: str | None = None
     address: str | None = None
+    company_email: str | None = None  # privalomas verslo paskyrai (sąskaitoms / korespondencijai)
     city: str | None = None
     country: str | None = None
     contact_person: str | None = None
@@ -2103,13 +2104,9 @@ async def auth_login(req: LoginRequest):
             msg = f"Jūsų paskyra užblokuota. Priežastis: {block_reason}. Susisiekite: jt@diago.lt"
         raise HTTPException(status_code=403, detail=msg)
 
-    # El. pašto patvirtinimo patikrinimas (nauji vartotojai privalo patvirtinti)
-    # Senesni vartotojai (be email_verified lauko) – laikomi patvirtintais (legacy)
-    if user.get("email_verified") is False:
-        raise HTTPException(
-            status_code=403,
-            detail="Jūsų el. paštas dar nepatvirtintas. Patikrinkite pašto dėžutę (taip pat ir SPAM aplanką). Jei laiško nematote, galite užklausti naujos patvirtinimo nuorodos.",
-        )
+    # El. pašto patvirtinimas NEBEBLOKUOJA prisijungimo (admin patvirtina rankiniu būdu).
+    # Indikatorius "📧 Nepatvirtintas" matomas admin panelėje, leidžiant administratoriui
+    # patvirtinti arba užblokuoti vartotoją.
 
     await db.users.update_one({"_id": user["_id"]}, {"$set": {"last_login": datetime.now(timezone.utc)}})
 
@@ -2176,6 +2173,11 @@ async def auth_update_profile(req: ProfileUpdateRequest, authorization: str | No
             errors.append("PVM kodas yra privalomas.")
         if not _get("address"):
             errors.append("Adresas yra privalomas.")
+        ce = _get("company_email")
+        if not ce:
+            errors.append("Įmonės el. paštas yra privalomas.")
+        elif not re.match(r"^[^\s@]+@[^\s@]+\.[^\s@]+$", ce):
+            errors.append("Neteisingas įmonės el. pašto formatas.")
         if not _get("phone"):
             errors.append("Telefono numeris yra privalomas.")
 
@@ -2187,7 +2189,8 @@ async def auth_update_profile(req: ProfileUpdateRequest, authorization: str | No
     profile_fields = {
         "first_name": req.first_name, "last_name": req.last_name, "phone": req.phone,
         "company_name": req.company_name, "company_code": req.company_code, "vat_code": req.vat_code,
-        "address": req.address, "city": req.city, "country": req.country,
+        "address": req.address, "company_email": req.company_email,
+        "city": req.city, "country": req.country,
         "contact_person": req.contact_person,
     }
     for k, v in profile_fields.items():
@@ -2399,6 +2402,33 @@ class AdminBlockUserRequest(BaseModel):
     reason: str | None = None
 
 
+class AdminVerifyUserRequest(BaseModel):
+    user_id: str
+    verified: bool = True
+
+
+@api_router.post("/admin/users/verify-email")
+async def admin_users_verify(req: AdminVerifyUserRequest, authorization: str | None = Header(default=None)):
+    """Rankinis el. pašto patvirtinimas / atšaukimas administracinis veiksmas.
+    Admin'as gali pažymėti vartotojo el. paštą kaip patvirtintą (verified=True) arba grąžinti į nepatvirtintą būseną.
+    """
+    _require_admin(authorization)
+    db = _get_db()
+    if db is None:
+        raise HTTPException(status_code=503, detail="DB nepasiekiama.")
+    update = {"email_verified": bool(req.verified)}
+    if req.verified:
+        update["verified_at"] = datetime.now(timezone.utc)
+        update["verified_by_admin"] = True
+    res = await db.users.update_one(
+        {"user_id": req.user_id},
+        {"$set": update, "$unset": {"verification_token": "", "verification_expires_at": ""} if req.verified else {}},
+    )
+    if res.matched_count == 0:
+        raise HTTPException(status_code=404, detail="Vartotojas nerastas.")
+    return {"ok": True, "email_verified": bool(req.verified)}
+
+
 @api_router.get("/admin/test-smtp")
 async def admin_test_smtp(to: str | None = None, authorization: str | None = Header(default=None)):
     """Diagnostinis endpoint'as: parodo SMTP konfigūraciją ir bando siųsti testinį laišką.
@@ -2451,11 +2481,11 @@ async def admin_test_smtp(to: str | None = None, authorization: str | None = Hea
         if cfg["use_ssl"]:
             await aiosmtplib.send(msg, hostname=cfg["host"], port=cfg["port"],
                 username=cfg["user"], password=cfg["password"],
-                use_tls=True, timeout=25)
+                use_tls=True, timeout=10)
         else:
             await aiosmtplib.send(msg, hostname=cfg["host"], port=cfg["port"],
                 username=cfg["user"], password=cfg["password"],
-                start_tls=True, timeout=25)
+                start_tls=True, timeout=10)
         info["test_send"] = f"✓ Sėkmingai išsiųsta į {target}"
         info["test_send_ok"] = True
     except Exception as e:
@@ -2465,24 +2495,24 @@ async def admin_test_smtp(to: str | None = None, authorization: str | None = Hea
         info["error_class"] = type(e).__name__
         info["error_message"] = str(e)[:600]
 
-    # Papildomai - bandom alternatyvius portus, jei pirmas nepavyko
+    # Papildomai - bandom alternatyvius portus, jei pirmas nepavyko (trumpesnis timeout 6s)
     if not info.get("test_send_ok"):
         info["fallback_tests"] = []
-        for fallback_port, fallback_ssl in [(465, True), (25, False)]:
+        for fallback_port, fallback_ssl in [(465, True), (25, False), (2525, False)]:
             if fallback_port == cfg["port"]:
                 continue
             try:
                 if fallback_ssl:
                     await aiosmtplib.send(msg, hostname=cfg["host"], port=fallback_port,
                         username=cfg["user"], password=cfg["password"],
-                        use_tls=True, timeout=15)
+                        use_tls=True, timeout=6)
                 else:
                     await aiosmtplib.send(msg, hostname=cfg["host"], port=fallback_port,
                         username=cfg["user"], password=cfg["password"],
-                        start_tls=True, timeout=15)
+                        start_tls=True, timeout=6)
                 info["fallback_tests"].append(f"✓ Port {fallback_port} ({'SSL' if fallback_ssl else 'STARTTLS'}): VEIKIA – nurodykite SMTP_PORT={fallback_port}" + (f", SMTP_USE_SSL=true" if fallback_ssl else ""))
             except Exception as fe:
-                info["fallback_tests"].append(f"✗ Port {fallback_port}: {type(fe).__name__}: {str(fe)[:150]}")
+                info["fallback_tests"].append(f"✗ Port {fallback_port}: {type(fe).__name__}: {str(fe)[:120]}")
     return info
 
 
