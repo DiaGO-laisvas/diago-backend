@@ -1966,7 +1966,7 @@ class ProfileUpdateRequest(BaseModel):
 
 
 @api_router.post("/auth/register", response_model=UserResponse)
-async def auth_register(req: RegisterRequest, background_tasks: BackgroundTasks):
+async def auth_register(req: RegisterRequest):
     email = (req.email or "").strip().lower()
     pw = req.password or ""
     if len(pw) < 6:
@@ -1987,19 +1987,11 @@ async def auth_register(req: RegisterRequest, background_tasks: BackgroundTasks)
 
     existing = await db.users.find_one({"email": email})
     if existing:
-        # Jei vartotojas egzistuoja, bet email nepatvirtintas – informuojam ir leidžiam atsiųsti naują patvirtinimo laišką
-        if not existing.get("email_verified"):
-            raise HTTPException(
-                status_code=409,
-                detail="Šis el. paštas jau registruotas, bet dar nepatvirtintas. Patikrinkite pašto dėžutę arba užklausykite naujos patvirtinimo nuorodos.",
-            )
         raise HTTPException(status_code=409, detail="Šis el. paštas jau užregistruotas. Prašome prisijungti.")
 
     salt, h = _user_hash_password(pw)
     user_id = "u-" + secrets.token_urlsafe(8)
     now = datetime.now(timezone.utc)
-    verification_token = secrets.token_urlsafe(32)
-    verification_expires = now + timedelta(hours=48)
 
     await db.users.insert_one({
         "user_id": user_id,
@@ -2009,21 +2001,16 @@ async def auth_register(req: RegisterRequest, background_tasks: BackgroundTasks)
         "type": None,
         "profile": {},
         "created_at": now,
-        "last_login": None,  # nepalikim, kol nepatvirtintas
+        "last_login": now,
         "checks_count": 0,
-        # Email verification
+        # Email patvirtinimas: rankinis (admin'as patvirtina arba blokuoja)
         "email_verified": False,
-        "verification_token": verification_token,
-        "verification_expires_at": verification_expires,
         # Blokavimo statusas
         "blocked": False,
     })
 
-    # Siunčiam patvirtinimo laišką foniniu procesu (kad register neužstrigtų, jei SMTP lėtas)
-    subject, html_body, plain_body = _build_verification_email(email, verification_token)
-    background_tasks.add_task(_send_email, email, subject, html_body, plain_body)
-
-    # Token'as išduodamas, bet jis bus naudingas tik po patvirtinimo (login dabar blokuoja, kol nepatvirtinta)
+    # SMTP laiškas NESIUNČIAMAS automatiškai (Render.com blokuoja SMTP).
+    # Vietoj to admin'as rankiniu būdu patvirtina arba blokuoja paskyrą per admin panelę.
     token = _make_user_token(user_id, email)
     return UserResponse(token=token, email=email, user_id=user_id, has_profile=False)
 
