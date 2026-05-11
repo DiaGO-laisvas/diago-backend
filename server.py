@@ -1969,17 +1969,14 @@ class ProfileUpdateRequest(BaseModel):
 async def auth_register(req: RegisterRequest):
     email = (req.email or "").strip().lower()
     pw = req.password or ""
+    if not EMAIL_RE.match(email):
+        raise HTTPException(status_code=400, detail="Neteisingas el. pašto formatas.")
     if len(pw) < 6:
         raise HTTPException(status_code=400, detail="Slaptažodis turi būti bent 6 simbolių.")
     if len(pw) > 200:
         raise HTTPException(status_code=400, detail="Slaptažodis per ilgas.")
     if not req.accept_privacy:
         raise HTTPException(status_code=400, detail="Reikia sutikti su privatumo politika.")
-
-    # Patobulintas el. pašto patikrinimas: sintaksė + MX + disposable blacklist
-    ok, err = await _validate_email_advanced(email)
-    if not ok:
-        raise HTTPException(status_code=400, detail=err)
 
     db = _get_db()
     if db is None:
@@ -1992,7 +1989,6 @@ async def auth_register(req: RegisterRequest):
     salt, h = _user_hash_password(pw)
     user_id = "u-" + secrets.token_urlsafe(8)
     now = datetime.now(timezone.utc)
-
     await db.users.insert_one({
         "user_id": user_id,
         "email": email,
@@ -2003,14 +1999,8 @@ async def auth_register(req: RegisterRequest):
         "created_at": now,
         "last_login": now,
         "checks_count": 0,
-        # Email patvirtinimas: rankinis (admin'as patvirtina arba blokuoja)
-        "email_verified": False,
-        # Blokavimo statusas
         "blocked": False,
     })
-
-    # SMTP laiškas NESIUNČIAMAS automatiškai (Render.com blokuoja SMTP).
-    # Vietoj to admin'as rankiniu būdu patvirtina arba blokuoja paskyrą per admin panelę.
     token = _make_user_token(user_id, email)
     return UserResponse(token=token, email=email, user_id=user_id, has_profile=False)
 
