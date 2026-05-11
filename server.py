@@ -2399,6 +2399,49 @@ class AdminBlockUserRequest(BaseModel):
     reason: str | None = None
 
 
+@api_router.get("/admin/test-smtp")
+async def admin_test_smtp(to: str | None = None, authorization: str | None = Header(default=None)):
+    """Diagnostinis endpoint'as: parodo SMTP konfigūraciją ir bando siųsti testinį laišką.
+    Naudojimas (su admin token):
+      GET /api/admin/test-smtp           – tik info, ar SMTP env nustatyti
+      GET /api/admin/test-smtp?to=jt@diago.lt  – ir bando išsiųsti testinį laišką
+    """
+    _require_admin(authorization)
+    cfg = _smtp_config()
+    info = {
+        "smtp_configured": cfg is not None,
+        "smtp_host": (os.environ.get("SMTP_HOST") or "(NENUSTATYTA)"),
+        "smtp_port": os.environ.get("SMTP_PORT") or "(NENUSTATYTA)",
+        "smtp_user": os.environ.get("SMTP_USER") or "(NENUSTATYTA)",
+        "smtp_password_set": bool(os.environ.get("SMTP_PASSWORD")),
+        "smtp_password_length": len(os.environ.get("SMTP_PASSWORD") or ""),
+        "smtp_use_ssl": os.environ.get("SMTP_USE_SSL") or "false",
+        "smtp_from_name": os.environ.get("SMTP_FROM_NAME") or "DiaGO",
+        "aiosmtplib_installed": aiosmtplib is not None,
+        "dnspython_installed": dns is not None,
+        "public_site_url": _public_site_url(),
+    }
+    if not cfg:
+        info["test_send"] = "PRALEISTA – SMTP_HOST/USER/PASSWORD nenustatyti Render.com Environment'e"
+        return info
+    if not to:
+        info["test_send"] = "PRALEISTA – nenurodytas ?to=email parametras"
+        return info
+
+    target = to.strip()
+    subject = "DiaGO SMTP testinis laiškas"
+    html = f"<p>Sveiki!</p><p>Tai testinis laiškas iš DiaGO backend.</p><p>Jei jį gavote – SMTP konfigūracija veikia ✓</p><p style='color:#888;font-size:11px;'>UTC: {datetime.now(timezone.utc).isoformat()}</p>"
+    plain = f"DiaGO SMTP testinis laiškas. Jei gavote – konfigūracija veikia.\nUTC: {datetime.now(timezone.utc).isoformat()}"
+    try:
+        ok = await _send_email(target, subject, html, plain)
+        info["test_send"] = f"✓ Sėkmingai išsiųsta į {target}" if ok else f"✗ Nepavyko išsiųsti į {target} – patikrinkite Render.com logus"
+        info["test_send_ok"] = ok
+    except Exception as e:
+        info["test_send"] = f"✗ Klaida: {type(e).__name__}: {str(e)[:300]}"
+        info["test_send_ok"] = False
+    return info
+
+
 @api_router.post("/admin/users/block")
 async def admin_users_block(req: AdminBlockUserRequest, authorization: str | None = Header(default=None)):
     """Užblokuoja arba atblokuoja vartotoją (vartotojas negali prisijungti, bet duomenys lieka)."""
