@@ -724,6 +724,8 @@ class ErrorCheckResponse(BaseModel):
     unknown_codes: list[str] | None = None  # AI nežinomi kodai
     severity_map: dict[str, str] | None = None  # {kodas: 'critical'|'warning'|'info'}
     deducted_units: int = 0  # kiek kvotos vienetų atskaityta (=len(known_codes))
+    report_id: str | None = None  # Tik prisijungusiems – nuoroda į išsaugotą ataskaitą (galioja 14 d.)
+    report_expires_at: str | None = None  # ISO timestamp, kada nuoroda nustos galioti
 
 
 def _extract_search_query(analysis_text: str, fallback: str) -> str:
@@ -1024,6 +1026,39 @@ async def check_error(req: ErrorCheckRequest, request: Request, authorization: s
                 if docs:
                     await db.error_checks.insert_many(docs)
 
+                # Saugome PILNĄ ataskaitą tik PRISIJUNGUSIEMS vartotojams su 14 d. galiojimu
+                report_id_out = None
+                if user:
+                    try:
+                        import secrets
+                        report_id_out = secrets.token_urlsafe(12)  # ~16 simbolių, unikalus
+                        expires_at = now + timedelta(days=14)
+                        await db.error_reports.insert_one({
+                            "report_id": report_id_out,
+                            "user_id": user.get("user_id"),
+                            "user_email": user.get("email"),
+                            "analysis": analysis,
+                            "codes": codes,
+                            "known_codes": known_codes_list,
+                            "unknown_codes": unknown_codes_list,
+                            "severity_map": {c: severity_map.get(c, "info") for c in known_codes_list},
+                            "equipment_type": eq,
+                            "equipment_label": eq_label,
+                            "vehicle_info": veh[:200] if veh else None,
+                            "fault_description": fault_desc[:500] if fault_desc else None,
+                            "vin_provided": bool(vin_raw),
+                            "had_image": has_image,
+                            "search_query": search_q,
+                            "google_search_url": gs,
+                            "google_images_url": gi,
+                            "deducted_units": deducted,
+                            "created_at": now,
+                            "expires_at": expires_at,
+                        })
+                    except Exception:
+                        logger.exception("error_reports save failed")
+                        report_id_out = None
+
                 # Kvotos atskaitymas tik už atpažintus kodus
                 if deducted > 0:
                     if user:
@@ -1097,12 +1132,94 @@ async def check_error(req: ErrorCheckRequest, request: Request, authorization: s
             unknown_codes=unknown_codes_list,
             severity_map={c: severity_map.get(c, "info") for c in known_codes_list},
             deducted_units=deducted,
+            report_id=report_id_out if 'report_id_out' in locals() else None,
+            report_expires_at=(expires_at.isoformat() if 'expires_at' in locals() and report_id_out else None),
         )
     except HTTPException:
         raise
     except Exception as e:
         logger.exception("Error check failure")
         raise HTTPException(status_code=502, detail=f"Analizė nepavyko: {str(e)[:120]}")
+
+
+# ============================
+# USER REPORTS – istorija ir vieša peržiūra
+# ============================
+
+@api_router.get("/auth/history")
+async def user_history(limit: int = 50, authorization: str | None = Header(default=None)):
+    """Prisijungusio vartotojo paskutinės klaidų patikros (rodomos paskyroje)."""
+    user = await _get_current_user(authorization)
+    if not user:
+        raise HTTPException(status_code=401, detail="Reikia prisijungti.")
+    db = _get_db()
+    if db is None:
+        return {"items": []}
+    cur = db.error_reports.find(
+        {"user_id": user["user_id"]},
+        {
+            "_id": 0,
+            "report_id": 1,
+            "codes": 1,
+            "known_codes": 1,
+            "unknown_codes": 1,
+            "severity_map": 1,
+            "equipment_label": 1,
+            "vehicle_info": 1,
+            "fault_description": 1,
+            "had_image": 1,
+            "deducted_units": 1,
+            "created_at": 1,
+            "expires_at": 1,
+        },
+    ).sort("created_at", -1).limit(max(1, min(limit, 200)))
+    items = await cur.to_list(200)
+    # Konvertuojam datetime į ISO string
+    now = datetime.now(timezone.utc)
+    for it in items:
+        ea = it.get("expires_at")
+        if isinstance(ea, datetime):
+            # MongoDB grąžina naive datetime – padarom aware (UTC)
+            if ea.tzinfo is None:
+                ea = ea.replace(tzinfo=timezone.utc)
+            it["expires_at"] = ea.isoformat()
+            days_left = max(0, int((ea - now).total_seconds() / 86400))
+            it["days_left"] = days_left
+            it["expired"] = ea < now
+        ca = it.get("created_at")
+        if isinstance(ca, datetime):
+            if ca.tzinfo is None:
+                ca = ca.replace(tzinfo=timezone.utc)
+            it["created_at"] = ca.isoformat()
+    return {"items": items}
+
+
+@api_router.get("/reports/{report_id}")
+async def public_report_view(report_id: str):
+    """Vieša ataskaitos peržiūra. Galioja 14 d. (TTL trina automatiškai)."""
+    report_id = (report_id or "").strip()
+    if not report_id or len(report_id) > 64:
+        raise HTTPException(status_code=400, detail="Neteisinga ataskaitos nuoroda.")
+    db = _get_db()
+    if db is None:
+        raise HTTPException(status_code=503, detail="DB nepasiekiama.")
+    doc = await db.error_reports.find_one({"report_id": report_id}, {"_id": 0})
+    if not doc:
+        raise HTTPException(
+            status_code=410,
+            detail="Ataskaitos nuoroda nebegalioja arba neegzistuoja. Nuorodos galioja 14 dienų nuo sukūrimo.",
+        )
+    # Dėl saugumo nepateikiam vartotojo email
+    doc.pop("user_email", None)
+    doc.pop("user_id", None)
+    # Konvertuojam datetime (MongoDB grąžina naive – padarom aware UTC)
+    for k in ("created_at", "expires_at"):
+        v = doc.get(k)
+        if isinstance(v, datetime):
+            if v.tzinfo is None:
+                v = v.replace(tzinfo=timezone.utc)
+            doc[k] = v.isoformat()
+    return doc
 
 
 # ============================
@@ -2016,6 +2133,14 @@ async def _ensure_indexes():
             expireAfterSeconds=365 * 24 * 60 * 60,
             name="ttl_365d",
         )
+        # Vartotojo ataskaitos – auto-trynimas pagal expires_at lauką (14 d. nuo sukūrimo)
+        await db.error_reports.create_index(
+            "expires_at",
+            expireAfterSeconds=0,  # =0 reiškia: trinti, kai expires_at praeina
+            name="reports_ttl",
+        )
+        await db.error_reports.create_index("report_id", unique=True, name="reports_unique_id")
+        await db.error_reports.create_index([("user_id", 1), ("created_at", -1)], name="reports_user_idx")
         logger.info("✅ MongoDB indeksai sukurti (įskaitant TTL).")
     except Exception as e:
         logger.warning(f"Index creation issue: {e}")
