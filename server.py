@@ -9,6 +9,16 @@ Reikalingi env kintamieji:
   ADMIN_EMAIL           - Admin el. paštas (default: info@diago.lt)
   ADMIN_PASSWORD        - Admin slaptažodis paprastu tekstu (bus paverstas hash'u)
   JWT_SECRET            - Bet kokia ilga atsitiktinė eilutė admin sesijai
+  PUBLIC_SITE_URL       - Pagrindinis svetainės URL (default: https://www.diago.lt)
+                          Naudojamas patvirtinimo nuorodose laiškuose.
+
+SMTP el. pašto siuntimui (registracijos patvirtinimas, priminimai):
+  SMTP_HOST             - pvz. baobabas.serveriai.lt
+  SMTP_PORT             - 587 (STARTTLS) arba 465 (SSL)
+  SMTP_USER             - pvz. jt@diago.lt
+  SMTP_PASSWORD         - SMTP slaptažodis
+  SMTP_USE_SSL          - "true" jei port 465, "false" jei 587 STARTTLS (default: false)
+  SMTP_FROM_NAME        - rodomas siuntėjas (default: DiaGO)
 
 Vietinis paleidimas:
   pip install -r requirements.txt
@@ -21,20 +31,48 @@ import os
 import re
 import hmac
 import json
+import ssl
 import hashlib
 import logging
 import secrets
 from datetime import datetime, timezone, timedelta
 from collections import defaultdict, deque
 from urllib.parse import quote_plus
+from email.message import EmailMessage
 
-from fastapi import FastAPI, APIRouter, HTTPException, Header, Request
+from fastapi import FastAPI, APIRouter, HTTPException, Header, Request, BackgroundTasks
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel, Field
 from emergentintegrations.llm.chat import LlmChat, UserMessage, ImageContent
 
+try:
+    import aiosmtplib  # type: ignore
+except ImportError:
+    aiosmtplib = None  # type: ignore
+
+try:
+    import dns.resolver  # type: ignore
+except ImportError:
+    dns = None  # type: ignore
+
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
+
+# ============================
+# Datetime helperis – visada UTC su Z suffix'u
+# ============================
+def _iso_utc(dt: datetime | None) -> str | None:
+    """Konvertuoja datetime į ISO string'ą su 'Z' suffix'u (UTC).
+    Jei dt yra naive (be tz info), laikom kaip UTC.
+    JS toLocaleString() tada automatiškai parodys vartotojo laiko zonoje.
+    """
+    if not isinstance(dt, datetime):
+        return None
+    if dt.tzinfo is None:
+        dt = dt.replace(tzinfo=timezone.utc)
+    else:
+        dt = dt.astimezone(timezone.utc)
+    return dt.strftime("%Y-%m-%dT%H:%M:%S.") + f"{dt.microsecond:06d}"[:3] + "Z"
 
 # ============================
 # In-memory session history
@@ -65,6 +103,186 @@ def _get_db():
     except Exception as e:
         logger.exception(f"MongoDB prisijungimas nepavyko: {e}")
         return None
+
+
+# ============================
+# SMTP el. pašto siuntimas (registracijos patvirtinimas, priminimai)
+# ============================
+def _smtp_config():
+    """Grąžina SMTP konfigūraciją iš env. None, jei nenustatyta."""
+    host = os.environ.get("SMTP_HOST", "").strip()
+    user = os.environ.get("SMTP_USER", "").strip()
+    pw = os.environ.get("SMTP_PASSWORD", "")
+    if not host or not user or not pw:
+        return None
+    return {
+        "host": host,
+        "port": int(os.environ.get("SMTP_PORT", "587") or 587),
+        "user": user,
+        "password": pw,
+        "use_ssl": (os.environ.get("SMTP_USE_SSL", "false") or "false").lower() in ("1", "true", "yes"),
+        "from_name": os.environ.get("SMTP_FROM_NAME", "DiaGO"),
+    }
+
+
+async def _send_email(to_email: str, subject: str, html_body: str, text_body: str | None = None) -> bool:
+    """Asinchroninis SMTP siuntimas. Grąžina True, jei sėkmingai išsiųstas."""
+    cfg = _smtp_config()
+    if not cfg:
+        logger.warning("⚠️  SMTP_HOST/SMTP_USER nenustatyti – laiškas nesiunčiamas (%s)", to_email)
+        return False
+    if aiosmtplib is None:
+        logger.warning("⚠️  aiosmtplib biblioteka neįdiegta – laiškas nesiunčiamas")
+        return False
+
+    msg = EmailMessage()
+    msg["From"] = f"{cfg['from_name']} <{cfg['user']}>"
+    msg["To"] = to_email
+    msg["Subject"] = subject
+    msg.set_content(text_body or "Šis laiškas siunčiamas HTML formatu. Naudokite HTML pajėgų pašto klientą.")
+    msg.add_alternative(html_body, subtype="html")
+
+    try:
+        if cfg["use_ssl"]:
+            # SSL nuo pat pradžių (port 465)
+            await aiosmtplib.send(
+                msg, hostname=cfg["host"], port=cfg["port"],
+                username=cfg["user"], password=cfg["password"],
+                use_tls=True, timeout=30,
+            )
+        else:
+            # STARTTLS (port 587)
+            await aiosmtplib.send(
+                msg, hostname=cfg["host"], port=cfg["port"],
+                username=cfg["user"], password=cfg["password"],
+                start_tls=True, timeout=30,
+            )
+        logger.info("✉️  El. laiškas išsiųstas: %s [%s]", to_email, subject)
+        return True
+    except Exception as e:
+        logger.exception("SMTP siuntimo klaida (%s): %s", to_email, e)
+        return False
+
+
+# Disposable / fake domenai – nepriimam registracijų
+_DISPOSABLE_DOMAINS = {
+    "mailinator.com", "tempmail.com", "10minutemail.com", "guerrillamail.com",
+    "throwawaymail.com", "sharklasers.com", "yopmail.com", "trashmail.com",
+    "dispostable.com", "fakeinbox.com", "tempmailo.com", "temp-mail.org",
+    "mailtemp.info", "mintemail.com", "spambox.us", "maildrop.cc",
+    "getairmail.com", "tempmail.io", "tempmailaddress.com", "spam4.me",
+    "mohmal.com", "harakirimail.com", "emailondeck.com", "luxusmail.org",
+    "burnermail.io", "moakt.com", "tempmail.dev", "fakemailgenerator.com",
+}
+
+
+async def _validate_email_advanced(email: str) -> tuple[bool, str]:
+    """Patikrina el. paštą: sintaksė + MX įrašas + disposable blacklist.
+    Grąžina (ok, error_message_if_not_ok).
+    """
+    e = (email or "").strip().lower()
+    # 1) Sintaksė per email-validator
+    try:
+        from email_validator import validate_email, EmailNotValidError  # type: ignore
+        try:
+            valid = validate_email(e, check_deliverability=False)
+            normalized = valid.normalized.lower()
+        except EmailNotValidError as ex:
+            return False, "Neteisingas el. pašto formatas."
+    except ImportError:
+        # Fallback – paprastas regex
+        if not re.match(r"^[^\s@]+@[^\s@]+\.[^\s@]+$", e):
+            return False, "Neteisingas el. pašto formatas."
+        normalized = e
+
+    domain = normalized.rsplit("@", 1)[-1]
+
+    # 2) Disposable blacklist
+    if domain in _DISPOSABLE_DOMAINS:
+        return False, "Laikinieji (disposable) el. pašto adresai nepriimami. Naudokite tikrą el. paštą."
+
+    # 3) MX įrašas (jei dnspython yra ir nedraudžiama)
+    if dns is not None and os.environ.get("SKIP_MX_CHECK", "").lower() not in ("1", "true"):
+        try:
+            answers = dns.resolver.resolve(domain, "MX", lifetime=4)
+            if not list(answers):
+                return False, f"Domenas {domain} neturi pašto serverio. Patikrinkite el. paštą."
+        except dns.resolver.NXDOMAIN:
+            return False, f"Domenas {domain} neegzistuoja. Patikrinkite el. paštą."
+        except dns.resolver.NoAnswer:
+            # Bandom A įrašo (kai kurie domenai turi tik A)
+            try:
+                dns.resolver.resolve(domain, "A", lifetime=4)
+            except Exception:
+                return False, f"Domenas {domain} neturi pašto serverio."
+        except Exception as ex:
+            # DNS klaidos atveju – tiesiog praleidžiame šį patikrinimą, nestabdom registracijos
+            logger.warning("MX patikrinimas nepavyko domenui %s: %s", domain, ex)
+
+    return True, ""
+
+
+def _public_site_url() -> str:
+    """Pagrindinis svetainės URL (be / pabaigoje)."""
+    return os.environ.get("PUBLIC_SITE_URL", "https://www.diago.lt").rstrip("/")
+
+
+def _build_verification_email(email: str, token: str, name: str = "") -> tuple[str, str, str]:
+    """Sukuria patvirtinimo laiško tekstus (subject, html, plain)."""
+    base = _public_site_url()
+    link = f"{base}/patvirtinti.html?token={token}"
+    greeting = f"Sveiki, {name}!" if name else "Sveiki!"
+    subject = "DiaGO – patvirtinkite savo el. pašto adresą"
+
+    html = f"""<!DOCTYPE html>
+<html lang="lt"><head><meta charset="UTF-8"></head>
+<body style="margin:0;padding:0;background:#0a0604;font-family:Inter,Arial,sans-serif;color:#e8d9c0;">
+  <table width="100%" cellpadding="0" cellspacing="0" style="background:#0a0604;padding:40px 20px;">
+    <tr><td align="center">
+      <table width="600" cellpadding="0" cellspacing="0" style="max-width:600px;background:linear-gradient(180deg,#1f120a,#0a0604);border:1px solid #3b2416;border-radius:14px;padding:30px;">
+        <tr><td align="center" style="padding-bottom:24px;">
+          <img src="{base}/logo.jpg" alt="DiaGO" style="height:60px;border-radius:8px;" />
+        </td></tr>
+        <tr><td>
+          <h1 style="color:#e8a866;font-size:22px;margin:0 0 14px;font-weight:700;">{greeting}</h1>
+          <p style="color:#c9b59a;font-size:15px;line-height:1.6;margin:0 0 18px;">
+            Ačiū, kad užsiregistravote <strong style="color:#e8a866;">DiaGO</strong>. Norėdami pradėti naudotis paslauga, patvirtinkite savo el. pašto adresą paspausdami toliau esantį mygtuką:
+          </p>
+          <p style="text-align:center;margin:30px 0;">
+            <a href="{link}" style="display:inline-block;padding:14px 32px;background:linear-gradient(135deg,#d4904c,#a85c2a);color:#fff;font-weight:700;font-size:15px;text-decoration:none;border-radius:10px;">
+              ✓ Patvirtinti el. paštą
+            </a>
+          </p>
+          <p style="color:#8a7560;font-size:13px;line-height:1.5;margin:0 0 14px;">
+            Jei mygtukas neveikia, nukopijuokite šią nuorodą į naršyklę:<br>
+            <a href="{link}" style="color:#d4904c;word-break:break-all;">{link}</a>
+          </p>
+          <p style="color:#8a7560;font-size:12.5px;line-height:1.5;margin:18px 0 0;border-top:1px solid #3b2416;padding-top:14px;">
+            Patvirtinimo nuoroda galioja <strong style="color:#c9b59a;">48 valandas</strong>. Jei užsiregistruoti bandėte ne jūs – tiesiog ignoruokite šį laišką.
+          </p>
+        </td></tr>
+        <tr><td align="center" style="padding-top:24px;color:#6b5a45;font-size:12px;">
+          DiaGO · JT-Diag MB · jt@diago.lt · +370 638 34539<br>
+          <a href="{base}" style="color:#8a7560;text-decoration:none;">{base}</a>
+        </td></tr>
+      </table>
+    </td></tr>
+  </table>
+</body></html>
+"""
+    plain = f"""{greeting}
+
+Ačiū, kad užsiregistravote DiaGO. Norėdami pradėti naudotis paslauga, patvirtinkite savo el. paštą paspausdami šią nuorodą:
+
+{link}
+
+Nuoroda galioja 48 valandas. Jei užsiregistruoti bandėte ne jūs – ignoruokite šį laišką.
+
+— DiaGO komanda
+jt@diago.lt · +370 638 34539
+{base}
+"""
+    return subject, html, plain
 
 
 # ============================
@@ -1174,23 +1392,19 @@ async def user_history(limit: int = 50, authorization: str | None = Header(defau
         },
     ).sort("created_at", -1).limit(max(1, min(limit, 200)))
     items = await cur.to_list(200)
-    # Konvertuojam datetime į ISO string
+    # Konvertuojam datetime į ISO string su Z suffix'u (UTC)
     now = datetime.now(timezone.utc)
     for it in items:
         ea = it.get("expires_at")
         if isinstance(ea, datetime):
-            # MongoDB grąžina naive datetime – padarom aware (UTC)
             if ea.tzinfo is None:
                 ea = ea.replace(tzinfo=timezone.utc)
-            it["expires_at"] = ea.isoformat()
+            it["expires_at"] = _iso_utc(ea)
             days_left = max(0, int((ea - now).total_seconds() / 86400))
             it["days_left"] = days_left
             it["expired"] = ea < now
-        ca = it.get("created_at")
-        if isinstance(ca, datetime):
-            if ca.tzinfo is None:
-                ca = ca.replace(tzinfo=timezone.utc)
-            it["created_at"] = ca.isoformat()
+        if isinstance(it.get("created_at"), datetime):
+            it["created_at"] = _iso_utc(it["created_at"])
     return {"items": items}
 
 
@@ -1355,6 +1569,9 @@ async def admin_error_codes(limit: int = 50, authorization: str | None = Header(
         {"$limit": max(1, min(limit, 500))},
     ]
     rows = await db.error_checks.aggregate(pipeline).to_list(500)
+    for r in rows:
+        if isinstance(r.get("last_seen"), datetime):
+            r["last_seen"] = _iso_utc(r["last_seen"])
     return {"items": rows}
 
 
@@ -1366,6 +1583,10 @@ async def admin_error_checks_recent(limit: int = 50, authorization: str | None =
         return {"items": [], "db_offline": True}
     cur = db.error_checks.find({}, {"_id": 0}).sort("created_at", -1).limit(max(1, min(limit, 200)))
     rows = await cur.to_list(200)
+    # Konvertuojam datetime į UTC ISO su Z suffix'u, kad JS atvaizduotų vartotojo laiko zonoje
+    for r in rows:
+        if isinstance(r.get("created_at"), datetime):
+            r["created_at"] = _iso_utc(r["created_at"])
     return {"items": rows}
 
 
@@ -1735,11 +1956,9 @@ class ProfileUpdateRequest(BaseModel):
 
 
 @api_router.post("/auth/register", response_model=UserResponse)
-async def auth_register(req: RegisterRequest):
+async def auth_register(req: RegisterRequest, background_tasks: BackgroundTasks):
     email = (req.email or "").strip().lower()
     pw = req.password or ""
-    if not EMAIL_RE.match(email):
-        raise HTTPException(status_code=400, detail="Neteisingas el. pašto formatas.")
     if len(pw) < 6:
         raise HTTPException(status_code=400, detail="Slaptažodis turi būti bent 6 simbolių.")
     if len(pw) > 200:
@@ -1747,30 +1966,118 @@ async def auth_register(req: RegisterRequest):
     if not req.accept_privacy:
         raise HTTPException(status_code=400, detail="Reikia sutikti su privatumo politika.")
 
+    # Patobulintas el. pašto patikrinimas: sintaksė + MX + disposable blacklist
+    ok, err = await _validate_email_advanced(email)
+    if not ok:
+        raise HTTPException(status_code=400, detail=err)
+
     db = _get_db()
     if db is None:
         raise HTTPException(status_code=503, detail="DB nepasiekiama.")
 
     existing = await db.users.find_one({"email": email})
     if existing:
+        # Jei vartotojas egzistuoja, bet email nepatvirtintas – informuojam ir leidžiam atsiųsti naują patvirtinimo laišką
+        if not existing.get("email_verified"):
+            raise HTTPException(
+                status_code=409,
+                detail="Šis el. paštas jau registruotas, bet dar nepatvirtintas. Patikrinkite pašto dėžutę arba užklausykite naujos patvirtinimo nuorodos.",
+            )
         raise HTTPException(status_code=409, detail="Šis el. paštas jau užregistruotas. Prašome prisijungti.")
 
     salt, h = _user_hash_password(pw)
     user_id = "u-" + secrets.token_urlsafe(8)
     now = datetime.now(timezone.utc)
+    verification_token = secrets.token_urlsafe(32)
+    verification_expires = now + timedelta(hours=48)
+
     await db.users.insert_one({
         "user_id": user_id,
         "email": email,
         "password_hash": h,
         "password_salt": salt,
-        "type": None,  # bus nustatytas pildant profilį
+        "type": None,
         "profile": {},
         "created_at": now,
-        "last_login": now,
+        "last_login": None,  # nepalikim, kol nepatvirtintas
         "checks_count": 0,
+        # Email verification
+        "email_verified": False,
+        "verification_token": verification_token,
+        "verification_expires_at": verification_expires,
+        # Blokavimo statusas
+        "blocked": False,
     })
+
+    # Siunčiam patvirtinimo laišką foniniu procesu (kad register neužstrigtų, jei SMTP lėtas)
+    subject, html_body, plain_body = _build_verification_email(email, verification_token)
+    background_tasks.add_task(_send_email, email, subject, html_body, plain_body)
+
+    # Token'as išduodamas, bet jis bus naudingas tik po patvirtinimo (login dabar blokuoja, kol nepatvirtinta)
     token = _make_user_token(user_id, email)
     return UserResponse(token=token, email=email, user_id=user_id, has_profile=False)
+
+
+@api_router.post("/auth/resend-verification")
+async def auth_resend_verification(req: dict, background_tasks: BackgroundTasks):
+    """Pakartotinai siunčia patvirtinimo laišką."""
+    email = (req.get("email") or "").strip().lower()
+    if not email:
+        raise HTTPException(status_code=400, detail="Įveskite el. paštą.")
+    db = _get_db()
+    if db is None:
+        raise HTTPException(status_code=503, detail="DB nepasiekiama.")
+    user = await db.users.find_one({"email": email})
+    if not user:
+        # Neatskleidžiam, ar egzistuoja (saugumas)
+        return {"ok": True, "message": "Jei toks el. paštas yra registruotas ir nepatvirtintas – ką tik išsiuntėme naują patvirtinimo nuorodą."}
+    if user.get("email_verified"):
+        return {"ok": True, "already_verified": True, "message": "Šis el. paštas jau patvirtintas. Galite prisijungti."}
+
+    # Sukuriam naują tokeną (anuliuojam senąjį)
+    new_token = secrets.token_urlsafe(32)
+    new_expires = datetime.now(timezone.utc) + timedelta(hours=48)
+    await db.users.update_one(
+        {"_id": user["_id"]},
+        {"$set": {"verification_token": new_token, "verification_expires_at": new_expires}},
+    )
+    name = (user.get("profile") or {}).get("first_name") or ""
+    subject, html_body, plain_body = _build_verification_email(email, new_token, name=name)
+    background_tasks.add_task(_send_email, email, subject, html_body, plain_body)
+    return {"ok": True, "message": "Patvirtinimo laišką išsiuntėme. Patikrinkite savo pašto dėžutę (taip pat ir SPAM aplanką)."}
+
+
+@api_router.get("/auth/verify-email")
+async def auth_verify_email(token: str | None = None):
+    """Patvirtina el. paštą pagal token'ą iš laiško nuorodos."""
+    token = (token or "").strip()
+    if not token or len(token) < 16:
+        raise HTTPException(status_code=400, detail="Neteisinga patvirtinimo nuoroda.")
+    db = _get_db()
+    if db is None:
+        raise HTTPException(status_code=503, detail="DB nepasiekiama.")
+    user = await db.users.find_one({"verification_token": token})
+    if not user:
+        raise HTTPException(status_code=410, detail="Patvirtinimo nuoroda nebegalioja arba jau buvo panaudota. Jei dar neprisijungėte, prašome prisijungti – galbūt el. paštas jau patvirtintas.")
+
+    exp = user.get("verification_expires_at")
+    if isinstance(exp, datetime):
+        if exp.tzinfo is None:
+            exp = exp.replace(tzinfo=timezone.utc)
+        if exp < datetime.now(timezone.utc):
+            raise HTTPException(status_code=410, detail="Patvirtinimo nuorodos galiojimas baigėsi (48 val.). Užklausykite naujos.")
+
+    await db.users.update_one(
+        {"_id": user["_id"]},
+        {
+            "$set": {
+                "email_verified": True,
+                "verified_at": datetime.now(timezone.utc),
+            },
+            "$unset": {"verification_token": "", "verification_expires_at": ""},
+        },
+    )
+    return {"ok": True, "email": user["email"], "message": "El. paštas sėkmingai patvirtintas! Dabar galite prisijungti."}
 
 
 @api_router.post("/auth/login", response_model=UserResponse)
@@ -1787,6 +2094,22 @@ async def auth_login(req: LoginRequest):
     user = await db.users.find_one({"email": email})
     if not user or not _user_verify_password(pw, user.get("password_salt", ""), user.get("password_hash", "")):
         raise HTTPException(status_code=401, detail="Neteisingas el. paštas arba slaptažodis.")
+
+    # Blokavimo patikrinimas
+    if user.get("blocked"):
+        block_reason = user.get("block_reason") or ""
+        msg = "Jūsų paskyra užblokuota. Susisiekite su administratoriumi: jt@diago.lt"
+        if block_reason:
+            msg = f"Jūsų paskyra užblokuota. Priežastis: {block_reason}. Susisiekite: jt@diago.lt"
+        raise HTTPException(status_code=403, detail=msg)
+
+    # El. pašto patvirtinimo patikrinimas (nauji vartotojai privalo patvirtinti)
+    # Senesni vartotojai (be email_verified lauko) – laikomi patvirtintais (legacy)
+    if user.get("email_verified") is False:
+        raise HTTPException(
+            status_code=403,
+            detail="Jūsų el. paštas dar nepatvirtintas. Patikrinkite pašto dėžutę (taip pat ir SPAM aplanką). Jei laiško nematote, galite užklausti naujos patvirtinimo nuorodos.",
+        )
 
     await db.users.update_one({"_id": user["_id"]}, {"$set": {"last_login": datetime.now(timezone.utc)}})
 
@@ -1822,11 +2145,44 @@ async def auth_update_profile(req: ProfileUpdateRequest, authorization: str | No
     if db is None:
         raise HTTPException(status_code=503, detail="DB nepasiekiama.")
 
-    update = {}
-    if req.type is not None:
-        if req.type not in ("private", "business"):
-            raise HTTPException(status_code=400, detail="Neteisingas vartotojo tipas.")
-        update["type"] = req.type
+    # Nustatom tipą
+    new_type = req.type if req.type is not None else user.get("type")
+    if new_type not in ("private", "business"):
+        raise HTTPException(status_code=400, detail="Pasirinkite vartotojo tipą (privatus arba verslo).")
+
+    # Helper: gauti reikšmę iš request arba esamo profilio
+    existing_profile = (user.get("profile") or {})
+    def _get(field):
+        v = getattr(req, field, None)
+        if v is None:
+            v = existing_profile.get(field, "")
+        return (v or "").strip()
+
+    # Privalomi laukai pagal tipą
+    errors = []
+    if new_type == "private":
+        if not _get("first_name"):
+            errors.append("Vardas yra privalomas.")
+        if not _get("last_name"):
+            errors.append("Pavardė yra privaloma.")
+        if not _get("phone"):
+            errors.append("Telefono numeris yra privalomas.")
+    else:  # business
+        if not _get("company_name"):
+            errors.append("Įmonės pavadinimas yra privalomas.")
+        if not _get("company_code"):
+            errors.append("Įmonės kodas yra privalomas.")
+        if not _get("vat_code"):
+            errors.append("PVM kodas yra privalomas.")
+        if not _get("address"):
+            errors.append("Adresas yra privalomas.")
+        if not _get("phone"):
+            errors.append("Telefono numeris yra privalomas.")
+
+    if errors:
+        raise HTTPException(status_code=400, detail=" ".join(errors))
+
+    update = {"type": new_type}
 
     profile_fields = {
         "first_name": req.first_name, "last_name": req.last_name, "phone": req.phone,
@@ -1834,11 +2190,9 @@ async def auth_update_profile(req: ProfileUpdateRequest, authorization: str | No
         "address": req.address, "city": req.city, "country": req.country,
         "contact_person": req.contact_person,
     }
-    profile_update = {}
     for k, v in profile_fields.items():
         if v is not None:
-            profile_update[f"profile.{k}"] = (v or "").strip()[:200]
-    update.update(profile_update)
+            update[f"profile.{k}"] = (v or "").strip()[:200]
     update["updated_at"] = datetime.now(timezone.utc)
 
     await db.users.update_one({"user_id": user["user_id"]}, {"$set": update})
@@ -1961,6 +2315,12 @@ async def admin_users_list(limit: int = 100, authorization: str | None = Header(
         pending_user_ids = set()
     for u in items:
         u["has_pending_renewal"] = u.get("user_id") in pending_user_ids
+        # Konvertuojam datetime į UTC ISO su Z suffix
+        for k in ("created_at", "last_login", "updated_at", "subscription_updated_at",
+                  "subscription_renews_at", "verification_expires_at", "verified_at",
+                  "blocked_at"):
+            if isinstance(u.get(k), datetime):
+                u[k] = _iso_utc(u[k])
 
     return {"items": items, "pending_renewals_count": len(pending_user_ids)}
 
@@ -2031,6 +2391,87 @@ async def admin_users_subscription(req: AdminSubscriptionRequest, authorization:
     if res.matched_count == 0:
         raise HTTPException(status_code=404, detail="Vartotojas nerastas.")
     return {"ok": True, "subscription_active": req.subscription_active}
+
+
+class AdminBlockUserRequest(BaseModel):
+    user_id: str
+    blocked: bool
+    reason: str | None = None
+
+
+@api_router.post("/admin/users/block")
+async def admin_users_block(req: AdminBlockUserRequest, authorization: str | None = Header(default=None)):
+    """Užblokuoja arba atblokuoja vartotoją (vartotojas negali prisijungti, bet duomenys lieka)."""
+    _require_admin(authorization)
+    db = _get_db()
+    if db is None:
+        raise HTTPException(status_code=503, detail="DB nepasiekiama.")
+    update = {
+        "blocked": bool(req.blocked),
+        "blocked_at": datetime.now(timezone.utc) if req.blocked else None,
+    }
+    if req.blocked:
+        update["block_reason"] = (req.reason or "").strip()[:300]
+    else:
+        update["block_reason"] = ""
+    res = await db.users.update_one({"user_id": req.user_id}, {"$set": update})
+    if res.matched_count == 0:
+        raise HTTPException(status_code=404, detail="Vartotojas nerastas.")
+    return {"ok": True, "blocked": bool(req.blocked)}
+
+
+class AdminDeleteUserRequest(BaseModel):
+    user_id: str
+    confirm_email: str  # vartotojas turi patvirtinti email'ą kaip apsaugą nuo netyčinio trynimo
+
+
+@api_router.post("/admin/users/delete")
+async def admin_users_delete(req: AdminDeleteUserRequest, authorization: str | None = Header(default=None)):
+    """Visiškai ištrina vartotoją ir visus jo duomenis (negrįžtamai).
+    Reikalauja patvirtinti vartotojo email'ą (kad nebūtų netyčia ištrintas).
+    """
+    _require_admin(authorization)
+    db = _get_db()
+    if db is None:
+        raise HTTPException(status_code=503, detail="DB nepasiekiama.")
+    user = await db.users.find_one({"user_id": req.user_id}, {"email": 1, "user_id": 1})
+    if not user:
+        raise HTTPException(status_code=404, detail="Vartotojas nerastas.")
+    if (req.confirm_email or "").strip().lower() != user["email"].strip().lower():
+        raise HTTPException(status_code=400, detail="Patvirtinimo el. paštas nesutampa su vartotojo el. paštu.")
+
+    # Ištrinam visus susijusius duomenis
+    user_id = user["user_id"]
+    email = user["email"]
+    deleted_counts = {}
+
+    try:
+        r = await db.users.delete_one({"user_id": user_id})
+        deleted_counts["users"] = r.deleted_count
+    except Exception as e:
+        logger.exception("Klaida trinant users: %s", e)
+
+    try:
+        r = await db.error_reports.delete_many({"user_id": user_id})
+        deleted_counts["error_reports"] = r.deleted_count
+    except Exception:
+        pass
+
+    try:
+        r = await db.renewal_requests.delete_many({"user_id": user_id})
+        deleted_counts["renewal_requests"] = r.deleted_count
+    except Exception:
+        pass
+
+    # error_checks gali būti susiję per visitor_id arba user_id – trinam tik su user_id
+    try:
+        r = await db.error_checks.delete_many({"user_id": user_id})
+        deleted_counts["error_checks"] = r.deleted_count
+    except Exception:
+        pass
+
+    logger.info("🗑  Vartotojas ištrintas: %s (%s). Pašalinta: %s", email, user_id, deleted_counts)
+    return {"ok": True, "deleted": deleted_counts, "email": email}
 
 
 class RenewalRequest(BaseModel):

@@ -1,0 +1,14 @@
+# DiaGO env kintamieji Render.com dashboard'e (Environment → Add Environment Variable):
+EMERGENT_LLM_KEY=sk-emergent-XXXX (jūsų raktas)
+MONGODB_URI=mongodb+srv://user:pass@cluster.mongodb.net (jūsų Atlas URI)
+MONGODB_DB=diago
+ADMIN_EMAIL=jt@diago.lt
+ADMIN_PASSWORD=jūsų-admin-slaptažodis
+JWT_SECRET=ilgas-atsitiktinis-stringas-pvz-asdjflkajsdflj32498234
+PUBLIC_SITE_URL=https://www.diago.lt
+SMTP_HOST=baobabas.serveriai.lt
+SMTP_PORT=587
+SMTP_USER=jt@diago.lt
+SMTP_PASSWORD=JTserv.123.Ked
+SMTP_USE_SSL=false
+SMTP_FROM_NAME=DiaGO
