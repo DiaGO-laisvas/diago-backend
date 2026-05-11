@@ -508,7 +508,7 @@ EQUIPMENT_LABELS = {
     "car": "automobilis",
     "construction": "statybinė technika",
     "agriculture": "žemės ūkio technika",
-    "warehouse": "sandėliavimo technika",
+    "warehouse": "kėlimo technika",
 }
 
 ERROR_ANALYZER_PROMPT = """Tu esi DiaGO ekspertas-mechanikas, kuris padeda klientams suprasti diagnostikos klaidos kodus.
@@ -1308,6 +1308,11 @@ async def admin_stats(authorization: str | None = Header(default=None)):
     positive_feedback = await db.feedbacks.count_documents({"rating": "up"})
     negative_feedback = await db.feedbacks.count_documents({"rating": "down"})
 
+    # Registruoti vartotojai pagal tipą (B2C/B2B)
+    private_users = await db.users.count_documents({"type": "private"})
+    business_users = await db.users.count_documents({"type": "business"})
+    total_registered_users = await db.users.count_documents({})
+
     return {
         "totals": {
             "unique_visitors": total_visitors_count,
@@ -1319,6 +1324,9 @@ async def admin_stats(authorization: str | None = Header(default=None)):
             "total_feedback": total_feedback,
             "positive_feedback": positive_feedback,
             "negative_feedback": negative_feedback,
+            "private_users": private_users,
+            "business_users": business_users,
+            "total_registered_users": total_registered_users,
         },
         "visits_by_day": visits_by_day,
     }
