@@ -1936,6 +1936,8 @@ class RegisterRequest(BaseModel):
     email: str
     password: str
     accept_privacy: bool = True
+    marketing_email: bool = False  # Sutikimas gauti informaciją el. paštu
+    marketing_phone: bool = False  # Sutikimas gauti informaciją telefonu (SMS/skambučiu)
 
 
 class LoginRequest(BaseModel):
@@ -2000,6 +2002,10 @@ async def auth_register(req: RegisterRequest):
         "last_login": now,
         "checks_count": 0,
         "blocked": False,
+        # Marketing sutikimai (gautas registracijos metu)
+        "marketing_email": bool(req.marketing_email),
+        "marketing_phone": bool(req.marketing_phone),
+        "marketing_consents_at": now,
     })
     token = _make_user_token(user_id, email)
     return UserResponse(token=token, email=email, user_id=user_id, has_profile=False)
@@ -2117,6 +2123,96 @@ async def auth_me(authorization: str | None = Header(default=None)):
         delta = renews_at - datetime.now(timezone.utc)
         days_until_renew = max(0, delta.days)
     return {"user": user, "days_until_renew": days_until_renew}
+
+
+# ============================
+# Paskyros ištrynimas (savitarna) – Option A: reikalingas slaptažodis
+# ============================
+class DeleteAccountRequest(BaseModel):
+    password: str
+
+
+@api_router.delete("/auth/me")
+async def auth_delete_me(req: DeleteAccountRequest, authorization: str | None = Header(default=None)):
+    """Vartotojas ištrina savo paskyrą po slaptažodžio patvirtinimo.
+
+    Veiksmas:
+      1. Patvirtinam sesiją (token).
+      2. Patikrinam slaptažodį.
+      3. Anonimizuojam susijusius `error_checks` (user_id -> null), kad statistika ir
+         istorija (visitor_id pagrindu) liktų, bet asmuo nebebūtų susiejamas.
+      4. Ištrinam `error_reports`, `renewal_requests` (asmeniniai duomenys).
+      5. Ištrinam vartotoją iš `users`.
+    """
+    user = await _get_current_user(authorization)
+    if not user:
+        raise HTTPException(status_code=401, detail="Nepatvirtinta sesija.")
+    db = _get_db()
+    if db is None:
+        raise HTTPException(status_code=503, detail="DB nepasiekiama.")
+
+    pw = (req.password or "").strip()
+    if not pw:
+        raise HTTPException(status_code=400, detail="Įveskite slaptažodį.")
+
+    user_id = user.get("user_id")
+    email = user.get("email", "")
+    if not user_id:
+        raise HTTPException(status_code=500, detail="Vidinė klaida – paskyra neturi ID.")
+
+    # _get_current_user grąžina dokumentą be password_hash/salt (saugumo sumetimais).
+    # Slaptažodžio patikrai turim atskirai užklausti.
+    full_user = await db.users.find_one(
+        {"user_id": user_id},
+        {"password_hash": 1, "password_salt": 1},
+    )
+    if not full_user:
+        raise HTTPException(status_code=401, detail="Paskyra nerasta.")
+
+    # Tikrinam slaptažodį
+    if not _user_verify_password(pw, full_user.get("password_salt", ""), full_user.get("password_hash", "")):
+        raise HTTPException(status_code=400, detail="Neteisingas slaptažodis.")
+
+    summary: dict = {}
+
+    # 1. Anonimizuojam error_checks (statistika lieka, asmuo atsiejamas)
+    try:
+        r = await db.error_checks.update_many(
+            {"user_id": user_id},
+            {"$set": {"user_id": None, "anonymized_at": datetime.now(timezone.utc)}},
+        )
+        summary["error_checks_anonymized"] = r.modified_count
+    except Exception:
+        logger.exception("auth_delete_me: nepavyko anonimizuoti error_checks")
+        summary["error_checks_anonymized"] = -1
+
+    # 2. Trinam error_reports (jie turi asmeninius duomenis – kontaktus, transporto info)
+    try:
+        r = await db.error_reports.delete_many({"user_id": user_id})
+        summary["error_reports_deleted"] = r.deleted_count
+    except Exception:
+        logger.exception("auth_delete_me: nepavyko ištrinti error_reports")
+        summary["error_reports_deleted"] = -1
+
+    # 3. Trinam renewal_requests
+    try:
+        r = await db.renewal_requests.delete_many({"user_id": user_id})
+        summary["renewal_requests_deleted"] = r.deleted_count
+    except Exception:
+        logger.exception("auth_delete_me: nepavyko ištrinti renewal_requests")
+        summary["renewal_requests_deleted"] = -1
+
+    # 4. Trinam patį vartotoją
+    try:
+        r = await db.users.delete_one({"user_id": user_id})
+        summary["users_deleted"] = r.deleted_count
+    except Exception:
+        logger.exception("auth_delete_me: nepavyko ištrinti vartotojo")
+        raise HTTPException(status_code=500, detail="Nepavyko ištrinti paskyros. Susisiekite su admin'u.")
+
+    logger.info("🗑  Vartotojas SAVANORIŠKAI ištrynė paskyrą: %s (%s). Suvestinė: %s", email, user_id, summary)
+
+    return {"ok": True, "summary": summary, "email": email}
 
 
 @api_router.put("/auth/profile")
