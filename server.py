@@ -759,6 +759,49 @@ PRIVALOMA ELGSENA, KAI NUOTRAUKOS NĖRA IR PATEIKTA žemės ūkio / statybinė /
 
 Kai pateikta NUOTRAUKA – ŠIS įspėjimas NEREIKALINGAS, nes tikrasis gamintojo aprašymas matomas ir naudojamas tiesiogiai (žr. nuotraukos instrukcijas).
 
+🔴 OBD-II MANUFACTURER-SPECIFIC KODŲ TAISYKLĖ (PRIVALOMA – KRITIŠKAI SVARBI):
+SAE J2012 standartas apibrėžia DTC kodų formatą, bet tik dalis kodų yra TIKRAI generic (apibrėžti standarte). Likę – manufacturer-specific, t.y. KIEKVIENAS gamintojas (BMW, VW, Audi, Mercedes-Benz, Ford, Toyota, Volvo ir t.t.) **savaip apibrėžia** šių kodų reikšmę. TAS PATS kodas BMW automobiliui ir VW automobiliui DAŽNAI reiškia VISIŠKAI SKIRTINGUS gedimus.
+
+KAIP ATSKIRTI generic vs manufacturer-specific:
+| Kategorija | Generic (SAE) | Manufacturer-specific |
+|---|---|---|
+| Powertrain | **P0xxx**, **P2xxx** (dalis – mišri) | **P1xxx**, **P3xxx** |
+| Body | **B0xxx** | **B1xxx, B2xxx, B3xxx** |
+| Chassis | **C0xxx** | **C1xxx, C2xxx, C3xxx** |
+| Network | **U0xxx**, **U2xxx** (dalis) | **U1xxx**, **U3xxx** |
+
+PAVYZDŽIAI, kodėl tai svarbu:
+- `P161C` BMW dyzelyje (DDE) = **gali reikšti** alyvos būklės jutiklį (OZS) ARBA DDE coding/programming mismatch – priklauso nuo modelio ir DDE versijos.
+- `P161C` Ford F150 = visiškai kita reikšmė (fuel system / injection).
+- `P1604` Toyota = ECU start failure; `P1604` Hyundai/Kia = injection control mismatch; `P1604` Mercedes = visai kitokia interpretacija.
+- `B1234` BMW ≠ `B1234` VW ≠ `B1234` Mercedes.
+
+PRIVALOMA ELGSENA, KAI KODAS YRA MANUFACTURER-SPECIFIC (P1xxx, P3xxx, B1xxx, B2xxx, B3xxx, C1xxx, C2xxx, C3xxx, U1xxx, U3xxx):
+
+1) Skiltyje **„Klaidos paaiškinimas"** PRIVALOMAI:
+   a) Aiškiai pažymėti: „**Tai gamintojo specifikinis kodas** – jo tiksli reikšmė priklauso nuo konkretaus modelio, variklio ir ECU/DDE/MED versijos."
+   b) Pateikti **2–3 GALIMAS interpretacijas** šio kodo (jei dažnai naudojamas keliems gedimams), nurodant **kuriai modelio/variklio kombinacijai kiekviena tikėtina** (pvz., „BMW E60 530d (M57N2 variklis): alyvos būklės jutiklis OZS" vs. „BMW F30 320d (N47 variklis): DDE programavimo neatitikimas").
+   c) **NIEKADA nesakykite užtikrintai „TAI YRA..."** – visada vartokite „**Greičiausiai** tai yra...", „**Pagal vieną interpretaciją...**", „**Priklausomai nuo DDE versijos...**".
+   d) Jei vartotojas nepateikė variklio kodo ar tikslių metų – PRIVALOMAI paklauskite: „Tikslesnei diagnostikai prašom nurodyti variklio kodą (pvz., M57N2, N47, N57) ir gamybos metus, nes šis kodas skiriasi tarp variklių."
+
+2) **Pasitikėjimo lygmuo** – jei pateiktas tik markė+modelis BE variklio kodo / DDE versijos / nuotraukos: pasitikėjimas „**vidutinis**" arba „**žemas**". Niekada „aukštas".
+
+3) Skiltyje **„Rekomendacijos"** PRIVALOMAI pridėkite:
+   „• **Patikslinti per gamintojo įrankį** (BMW: ISTA/ISTA-D, VW/Audi/Škoda: VCDS/ODIS, Mercedes: XENTRY, Ford: IDS, Volvo: VIDA). Tik šie įrankiai parodys TIKSLŲ jūsų konkretaus automobilio kodo aprašymą."
+
+4) Jei kodas BUVO NUSKAITYTAS iš pateiktos nuotraukos ir nuotraukoje matomas oficialus aprašymo tekstas šalia kodo – ŠI taisyklė NETAIKOMA (nuotraukos tekstas turi pirmenybę, kaip ir J1939 atveju).
+
+5) **U0xxx, P0xxx, B0xxx, C0xxx kodams** (TIKRAI generic) – galima atsakyti tiesiai, be šių apsaugų, NES jie standartizuoti SAE J2012/J1979.
+
+PAVYZDYS NETEISINGO ELGESIO (NIEKADA TAIP NEDARYKITE):
+❌ „Jūsų BMW užfiksuotas klaidos kodas P161C nurodo problemą su alyvos būklės jutikliu (OZS). Klaida reiškia, kad DDE negauna signalo." – per daug užtikrintas, neatsižvelgta į alternatyvią interpretaciją (DDE coding mismatch), nepaklausta variklio kodo.
+
+PAVYZDYS TEISINGO ELGESIO:
+✅ „P161C yra **BMW gamintojo specifikinis kodas**, kurio tiksli reikšmė priklauso nuo variklio ir DDE versijos. Greičiausiai tai vienas iš dviejų:
+   • **Alyvos būklės jutiklis (OZS / Ölzustandssensor)** – dažniau M57/N57 dyzeliuose;
+   • **DDE konfigūracijos / kodavimo neatitikimas** – dažniau po DDE pakeitimo ar programinės įrangos atnaujinimo.
+   Tikslesnei diagnostikai prašom nurodyti variklio kodą (pvz., M57N2, N47, N57) ir gamybos metus."
+
 🔴🔴🔴 OEM DETALIŲ KODŲ TAISYKLĖ (ABSOLIUTI – KRITIŠKAI SVARBI):
 **NIEKADA NEGENERUOKITE/NEIŠGALVOKITE OEM DETALIŲ NUMERIŲ ŽEMĖS ŪKIO, STATYBINEI, SANDĖLIAVIMO IR SUNKVEŽIMIŲ TECHNIKAI.**
 
@@ -817,8 +860,28 @@ unknown: <neatpažintų kodų sąrašas atskirtas kableliais arba palik tušči�
 severity_critical: <RIMTŲ kodų sąrašas atskirtas kableliais arba tuščia>
 severity_warning: <ĮSPĖJIMŲ kodų sąrašas atskirtas kableliais arba tuščia>
 severity_info: <INFORMACINIŲ kodų sąrašas atskirtas kableliais arba tuščia>
+needs_clarification: <yes arba no – ar reikia papildomos informacijos iš kliento, kad tiksliau diagnozuoti>
+clarification_question: <jei needs_clarification=yes – TIKSLUS KLAUSIMAS klientui lietuvių kalba, ką patikslinti; jei no – palikite tuščią>
 
-(Sistema šį bloką pašalins prieš rodydama klientui – jis NĖRA matomas vartotojui. Jis naudojamas: viena atpažinta klaida = 1 kvotos vienetas, neatpažintos – nemokamos. Severity laukai naudojami suvestinės kortelei: rimtos / įspėjimai / informacinės.)
+KADA needs_clarification=yes:
+- Kodas yra manufacturer-specific (P1xxx, P3xxx, B1xxx-B3xxx, C1xxx-C3xxx, U1xxx, U3xxx) IR nepateiktas variklio kodas / DDE versija.
+- Yra 2+ panašiai tikėtinos interpretacijos ir pateikti duomenys neleidžia jų atskirti.
+- Klientas pateikė miglotą problemos aprašymą („mašina nedirba", „kažkas keista"), kuris neleidžia įvardyti tikslios priežasties.
+- Kodas labai retas/specifinis – reikia VIN'o ar serijinio numerio tiksliam modeliui nustatyti.
+
+KADA needs_clarification=no:
+- Kodas yra generic SAE J2012 (P0xxx, B0xxx, C0xxx, U0xxx) IR pateikta pakankamai info.
+- Iš nuotraukos atpažintas oficialus gamintojo aprašymas → vienareikšmiškai aišku.
+- Klientas pateikė konkretų aprašymą + variklio kodą → tikra interpretacija.
+- Klientas pateikė PAPILDOMĄ INFORMACIJĄ po pirmos analizės, kuri pašalino dviprasmybę.
+
+clarification_question pavyzdžiai (LIETUVIŲ kalba, trumpas, konkretus):
+- „Tikslesnei diagnostikai prašom nurodyti variklio kodą (pvz., M57N2, N47, N57). Ar žinote, kokį konkrečiai variklį turi automobilis?"
+- „Ar problema atsiranda tik šaltame, tik karštame variklyje, ar visada? Tai padės atskirti kelias galimas priežastis."
+- „Pateikite VIN numerį arba nurodykite, ar tai pre-LCI ar LCI versija – kodas skiriasi tarp jų."
+- „Ar po DDE programinės įrangos atnaujinimo ar pakeitimo? Tai svarbu atskirti coding mismatch nuo OZS gedimo."
+
+(Sistema šį bloką pašalins prieš rodydama klientui – jis NĖRA matomas vartotojui. Jis naudojamas: viena atpažinta klaida = 1 kvotos vienetas, neatpažintos – nemokamos. Severity laukai naudojami suvestinės kortelei: rimtos / įspėjimai / informacinės. needs_clarification ir clarification_question naudojami pasiūlyti vartotojui patikslinti užklausą ir gauti tikslesnę analizę NEMOKAMAI.)
 
 TECHNIKOS DUOMENŲ TIKSLINIMAS:
 - Klientas pateikia gamintoją, modelį ir metus. Dažnai daro rašymo klaidų (pvz., „Audy" → „Audi", „bmv" → „BMW", „pasat" → „Passat", „lynde" → „Linde").
@@ -926,8 +989,13 @@ class ErrorCheckRequest(BaseModel):
     vehicle_info: str | None = None
     visitor_id: str | None = None  # nemokamų užklausų sekiojimui
     vin: str | None = None  # neprivaloma – VIN arba serijinis numeris (max 50)
-    fault_description: str | None = None  # neprivaloma – simptomų aprašymas (max 500)
+    engine_code: str | None = None  # neprivaloma – pvz., "M57N2", "N47", "TDI 2.0"
+    fuel_type: str | None = None  # petrol/diesel/lpg/cng/hybrid/electric/other
+    fault_description: str | None = None  # PRIVALOMA naujose užklausose (bent 10 simb.), bet paliekam Optional dėl atgalinio suderinamumo
     image_base64: str | None = None  # neprivaloma – nuotraukos su klaidomis kodų ekranu (TIK prisijungusiems)
+    # ===== Follow-up / patikslinimas (naudoja /api/check-error-followup) =====
+    additional_info: str | None = None  # papildoma informacija nuo kliento po pirmo atsakymo
+    previous_analysis: str | None = None  # ankstesnės analizės tekstas (kontekstui)
 
 
 class ErrorCheckResponse(BaseModel):
@@ -944,6 +1012,10 @@ class ErrorCheckResponse(BaseModel):
     deducted_units: int = 0  # kiek kvotos vienetų atskaityta (=len(known_codes))
     report_id: str | None = None  # Tik prisijungusiems – nuoroda į išsaugotą ataskaitą (galioja 14 d.)
     report_expires_at: str | None = None  # ISO timestamp, kada nuoroda nustos galioti
+    # ===== LLM patikslinimo signalai =====
+    needs_clarification: bool = False  # LLM nurodo, kad turi >1 interpretaciją ir reikia patikslinti
+    clarification_question: str | None = None  # konkretus klausimas vartotojui (pvz., "Nurodykite variklio kodą")
+    is_followup: bool = False  # ar tai pakartotinė analizė (nemokama, neatskaito kvotos)
 
 
 def _extract_search_query(analysis_text: str, fallback: str) -> str:
@@ -985,20 +1057,13 @@ MAX_CODES_TYPED = 5    # ranka įvedant
 MAX_CODES_IMAGE = 10   # iš nuotraukos (gali daugiau, jei matosi)
 
 
-def _parse_diago_meta(analysis: str) -> tuple[str, list[str], list[str], dict]:
+def _parse_diago_meta(analysis: str) -> tuple[str, list[str], list[str], dict, bool, str]:
     """
-    Iš atsakymo ištraukia DiaGO_META bloką ir grąžina (švarus_atsakymas, known_codes, unknown_codes, severity_map).
-    severity_map: { "P0420": "warning", "P0301": "critical", ... }
-    Bloko pavyzdys:
-      ## DiaGO_META
-      known: P0420, P0301
-      unknown: XXXX99
-      severity_critical: P0301
-      severity_warning: P0420
-      severity_info:
+    Iš atsakymo ištraukia DiaGO_META bloką ir grąžina:
+      (švarus_atsakymas, known_codes, unknown_codes, severity_map, needs_clarification, clarification_question)
     """
     if not analysis:
-        return analysis or "", [], [], {}
+        return analysis or "", [], [], {}, False, ""
     m = re.search(
         r"##\s*DiaGO[_\s-]?META\s*\n+(.*?)(?=\n##\s|$)",
         analysis,
@@ -1007,6 +1072,8 @@ def _parse_diago_meta(analysis: str) -> tuple[str, list[str], list[str], dict]:
     known: list[str] = []
     unknown: list[str] = []
     severity: dict[str, str] = {}
+    needs_clarification = False
+    clarification_question = ""
     if m:
         block = m.group(1)
         def _parse_line(label: str) -> list[str]:
@@ -1015,6 +1082,9 @@ def _parse_diago_meta(analysis: str) -> tuple[str, list[str], list[str], dict]:
             if not mm:
                 return []
             return [c.strip().upper() for c in re.split(r"[,\s;]+", mm.group(1)) if c.strip()]
+        def _parse_text_line(label: str) -> str:
+            mm = re.search(rf"^[ \t]*{label}[ \t]*:[ \t]*([^\n]*)", block, re.IGNORECASE | re.MULTILINE)
+            return (mm.group(1).strip() if mm else "")
         known = _parse_line("known")
         unknown = _parse_line("unknown")
         for c in _parse_line("severity_critical"):
@@ -1023,9 +1093,12 @@ def _parse_diago_meta(analysis: str) -> tuple[str, list[str], list[str], dict]:
             severity[c] = "warning"
         for c in _parse_line("severity_info"):
             severity[c] = "info"
+        nc_raw = _parse_text_line("needs_clarification").lower()
+        needs_clarification = nc_raw in ("yes", "true", "taip", "1")
+        clarification_question = _parse_text_line("clarification_question")[:500]
         # Pašalinam meta bloką iš atsakymo (kad vartotojas nematytų)
         analysis = analysis.replace(m.group(0), "").lstrip()
-    return analysis, known, unknown, severity
+    return analysis, known, unknown, severity, needs_clarification, clarification_question
 
 
 @api_router.post("/check-error", response_model=ErrorCheckResponse)
@@ -1034,14 +1107,36 @@ async def check_error(req: ErrorCheckRequest, request: Request, authorization: s
     eq = (req.equipment_type or "").strip().lower()
     veh = (req.vehicle_info or "").strip()
     vin_raw = (req.vin or "").strip().upper()[:50]
+    engine_code = (req.engine_code or "").strip()[:60]
+    fuel_type_raw = (req.fuel_type or "").strip().lower()[:20]
     fault_desc = (req.fault_description or "").strip()[:500]
+    additional_info = (req.additional_info or "").strip()[:1000]
     img_b64 = (req.image_base64 or "").strip()
     has_image = bool(img_b64)
+    is_followup = bool(additional_info or req.previous_analysis)
 
     if not raw_codes and not has_image:
         raise HTTPException(status_code=400, detail="Įveskite klaidos kodą arba įkelkite nuotrauką su klaidomis.")
     if eq not in EQUIPMENT_LABELS:
         raise HTTPException(status_code=400, detail="Neteisingas technikos tipas.")
+
+    # Naujose užklausose (ne follow-up'uose) – privalomas gedimo apibūdinimas (min 10 simb.)
+    if not is_followup and len(fault_desc) < 10:
+        raise HTTPException(
+            status_code=400,
+            detail="Privalomai aprašykite gedimą (bent 10 simbolių). Tai padeda atskirti panašias problemas.",
+        )
+
+    # Variklis ARBA degalų rūšis – bent vienas privalomas naujoms užklausoms
+    # (motociklams ir lengviems automobiliams – ypač svarbu manufacturer-specific kodams atskirti)
+    FUEL_TYPES_VALID = {"petrol", "diesel", "lpg", "cng", "hybrid", "electric", "other", ""}
+    if fuel_type_raw not in FUEL_TYPES_VALID:
+        fuel_type_raw = ""
+    if not is_followup and not engine_code and not fuel_type_raw:
+        raise HTTPException(
+            status_code=400,
+            detail="Įveskite variklio kodą arba pasirinkite degalų rūšį – tai padeda tiksliai diagnozuoti gedimą.",
+        )
 
     # Image limit check (~6 MB base64 ≈ 4.5 MB raw — Gemini limit is 20MB but kept lower)
     if has_image and len(img_b64) > 8_000_000:
@@ -1135,6 +1230,19 @@ async def check_error(req: ErrorCheckRequest, request: Request, authorization: s
         user_prompt += f"\nKlaidos kodai: NEPATEIKTI – PRIVALOMA juos išgauti iš pridėtos nuotraukos (klientas įkėlė skenerio ekrano nuotrauką)."
     if veh:
         user_prompt += f"\nMarkė/modelis/metai: {veh}"
+    if engine_code:
+        user_prompt += f"\nVariklio kodas: {engine_code}"
+    if fuel_type_raw:
+        fuel_label = {
+            "petrol": "Benzinas",
+            "diesel": "Dyzelis",
+            "lpg": "Dujos (LPG)",
+            "cng": "Dujos (CNG)",
+            "hybrid": "Hibridas",
+            "electric": "Elektra",
+            "other": "Kita",
+        }.get(fuel_type_raw, fuel_type_raw)
+        user_prompt += f"\nDegalų rūšis: {fuel_label}"
     if vin_raw:
         if is_real_vin:
             user_prompt += f"\nVIN (17 simb., naudokite tik vidiniam tikslinimui, neminėkite atsakyme): {vin_raw}"
@@ -1142,6 +1250,17 @@ async def check_error(req: ErrorCheckRequest, request: Request, authorization: s
             user_prompt += f"\nSerijinis numeris: {vin_raw}"
     if fault_desc:
         user_prompt += f"\nKliento aprašyti simptomai: {fault_desc}"
+    if additional_info:
+        user_prompt += (
+            f"\n\n🔄 PAPILDOMA INFORMACIJA NUO KLIENTO (po pirmos analizės): {additional_info}\n"
+            "Atsižvelkite į šią naują informaciją ir, jei reikia, PAKEISKITE/PATIKSLINKITE ankstesnę analizę. "
+            "Jei naują informaciją pateikus liko tik VIENA interpretacija – DiaGO_META nustatykite needs_clarification: false."
+        )
+    if req.previous_analysis:
+        user_prompt += (
+            f"\n\n📜 ANKSTESNĖ ANALIZĖ (kontekstui, neperkartoti aklai – patobulinkit atsižvelgiant į naują info):\n"
+            f"{req.previous_analysis[:3000]}"
+        )
     if has_image:
         user_prompt += (
             "\n\nNUOTRAUKA: prie užklausos pridėta nuotrauka su klaidomis (skenerio ekranas, dashboard ar pan.). "
@@ -1181,7 +1300,7 @@ async def check_error(req: ErrorCheckRequest, request: Request, authorization: s
         analysis = await chat.send_message(msg)
 
         # Ištraukiam ir pašalinam DiaGO_META bloką
-        analysis, known_codes, unknown_codes_meta, severity_map = _parse_diago_meta(analysis or "")
+        analysis, known_codes, unknown_codes_meta, severity_map, needs_clarification, clarification_question = _parse_diago_meta(analysis or "")
 
         # Jei tik nuotrauka (be teksto kodų) – kodų sąrašą formuojam iš AI grąžintų kodų
         if not codes and (known_codes or unknown_codes_meta):
@@ -1286,8 +1405,9 @@ async def check_error(req: ErrorCheckRequest, request: Request, authorization: s
                         logger.exception("error_reports save failed")
                         report_id_out = None
 
-                # Kvotos atskaitymas tik už atpažintus kodus
-                if deducted > 0:
+                # Kvotos atskaitymas tik už atpažintus kodus IR tik jei tai NE follow-up
+                # (follow-up'as – nemokamas patikslinimas tos pačios analizės)
+                if deducted > 0 and not is_followup:
                     if user:
                         await db.users.update_one(
                             {"user_id": user["user_id"]},
@@ -1318,6 +1438,33 @@ async def check_error(req: ErrorCheckRequest, request: Request, authorization: s
                             "used": new_used,
                             "remaining": max(0, FREE_QUOTA_LIMIT - new_used),
                             "deducted": deducted,
+                        }
+                elif is_followup:
+                    # Follow-up'as – kvota neliečiama
+                    if user:
+                        sub_quota = int(user.get("subscription_quota", 0))
+                        sub_used = int(user.get("subscription_used_this_month", 0))
+                        quota_info = {
+                            "logged_in": True,
+                            "unlimited": (sub_quota == 0),
+                            "limit": sub_quota or None,
+                            "used": sub_used,
+                            "remaining": max(0, sub_quota - sub_used) if sub_quota > 0 else None,
+                            "deducted": 0,
+                            "is_followup": True,
+                            "not_charged": True,
+                        }
+                    elif quota_doc is not None:
+                        used_now = int(quota_doc.get("count", 0))
+                        quota_info = {
+                            "logged_in": False,
+                            "unlimited": False,
+                            "limit": FREE_QUOTA_LIMIT,
+                            "used": used_now,
+                            "remaining": max(0, FREE_QUOTA_LIMIT - used_now),
+                            "deducted": 0,
+                            "is_followup": True,
+                            "not_charged": True,
                         }
                 else:
                     # Nebuvo atskaityta nieko – visi kodai nežinomi
@@ -1361,6 +1508,9 @@ async def check_error(req: ErrorCheckRequest, request: Request, authorization: s
             deducted_units=deducted,
             report_id=report_id_out if 'report_id_out' in locals() else None,
             report_expires_at=(expires_at.isoformat() if 'expires_at' in locals() and report_id_out else None),
+            needs_clarification=needs_clarification,
+            clarification_question=clarification_question,
+            is_followup=is_followup,
         )
     except HTTPException:
         raise
