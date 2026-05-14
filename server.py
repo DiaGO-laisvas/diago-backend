@@ -1348,6 +1348,49 @@ async def check_error(req: ErrorCheckRequest, request: Request, authorization: s
         # Ištraukiam ir pašalinam DiaGO_META bloką
         analysis, known_codes, unknown_codes_meta, severity_map, needs_clarification, clarification_question = _parse_diago_meta(analysis or "")
 
+        # FAIL-SAFE: Jei AI grąžino TIK DiaGO_META (analizė tuščia po stripping'o), pakartojam
+        # užklausą su aiškia instrukcija pateikti PILNĄ analizę. Tai apsauga nuo Gemini glitch'ų,
+        # kai modelis kartais pamiršta išvest pagrindinį turinį.
+        if len((analysis or "").strip()) < 60:
+            logger.warning("⚠️  Tuščia analizė po META stripping (len=%d). Retry'inu su nauja instrukcija.", len(analysis or ""))
+            try:
+                retry_msg = UserMessage(text=(
+                    user_prompt
+                    + "\n\n🔴 SVARBU: ANKSTESNIS atsakymas buvo tuščias arba turėjo TIK DiaGO_META bloką. "
+                    + "Šį kartą PRIVALOMA pateikti PILNĄ analizę su skiltimis:\n"
+                    + "## Klaidos paaiškinimas (PRIVALOMA)\n"
+                    + "## Galima priežastis (PRIVALOMA)\n"
+                    + "## Rekomendacijos (PRIVALOMA)\n\n"
+                    + "Skiltys turi turėti turinį (bent po 80 žodžių). DiaGO_META blokas yra TIK PAPILDOMAS metaduomenims, "
+                    + "PAGRINDINIS ATSAKYMAS yra tos 3 skiltys virš jo."
+                ))
+                analysis2 = await chat.send_message(retry_msg)
+                analysis2, k2, u2, sev2, nc2, cq2 = _parse_diago_meta(analysis2 or "")
+                if len((analysis2 or "").strip()) >= 60:
+                    analysis = analysis2
+                    if k2: known_codes = k2
+                    if u2: unknown_codes_meta = u2
+                    if sev2: severity_map = sev2
+                    needs_clarification = needs_clarification or nc2
+                    if cq2: clarification_question = cq2
+                    logger.info("✅ Retry pavyko – gauta pilna analizė (len=%d)", len(analysis))
+                else:
+                    # Net retry'as nepadėjo – grąžinam aiškią klaidą su default tekstu
+                    logger.error("❌ Retry irgi grąžino tuščią analizę. Grąžinam fallback tekstą.")
+                    analysis = (
+                        "## Klaidos paaiškinimas\n\n"
+                        f"Apgailestaujame – DiaGO šiuo metu negalėjo suformuoti detalios analizės kodui **{raw_codes}**. "
+                        "Tai gali būti dėl AI modelio laikinos problemos arba labai retos klaidos kodo.\n\n"
+                        "## Galima priežastis\n\n"
+                        "Be papildomos analizės sunku tiksliai nurodyti priežastį. Rekomenduojame:\n\n"
+                        "## Rekomendacijos\n\n"
+                        "• Bandykite paspausti 'Analizuoti iš naujo' su papildoma informacija (variklio kodu, simptomais).\n"
+                        "• Jei problema kartojasi – susisiekite per kontaktų puslapį, ir mes pagelbėsime asmeniškai.\n"
+                        "• **Atsiprašome už nepatogumus** – sistema yra BETA režime ir mes ją nuolat tobuliname."
+                    )
+            except Exception:
+                logger.exception("Retry nepavyko – paliekam pradinį (tuščią) atsakymą")
+
         # Jei tik nuotrauka (be teksto kodų) – kodų sąrašą formuojam iš AI grąžintų kodų
         if not codes and (known_codes or unknown_codes_meta):
             codes = (known_codes + unknown_codes_meta)[:5]
