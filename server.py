@@ -1401,19 +1401,43 @@ async def check_error(req: ErrorCheckRequest, request: Request, authorization: s
                         report_id_out = None
 
                 # Įrašome kiekvieną kodą atskirai analitikai
+                # SAUGOM PILNĄ kliento info (ne tik metaduomenis) – kad admin matytų,
+                # ką klientas suvedė į paiešką. Tai galioja IR neregistruotiems vartotojams.
+                # Nuotraukos NESAUGOM (per didelis dydis + privatumo problema), bet saugom
+                # kodų sąrašą, KURĮ ATPAŽINOME iš nuotraukos.
+                visitor_id_save = (req.visitor_id or "").strip()[:64] or None
+                ip_raw = request.client.host if request.client else ""
+                ip_save = _hash_ip(ip_raw) if ip_raw else None
+                # Saugom tik PASKUTINIUS 4 VIN simbolius pilnam audit, kad pilnas VIN nebūtų DB
+                vin_last4 = vin_raw[-4:] if vin_raw and len(vin_raw) >= 4 else None
+                # Atpažinti kodai iš nuotraukos – tik jei has_image
+                image_recognized_codes = (known_codes_list + unknown_codes_list) if has_image else None
+
                 docs = []
                 for c in codes:
                     docs.append({
                         "session_id": sid,
                         "user_id": user.get("user_id") if user else None,
                         "user_email": user.get("email") if user else None,
+                        "visitor_id": visitor_id_save,  # neregistruotų vartotojų sekimas
+                        "ip_hash": ip_save,
                         "report_id": report_id_out,  # susieta su ataskaita (jei yra)
                         "error_code": c,
                         "equipment": eq,
+                        "equipment_label": eq_label,
                         "vehicle_info": veh[:200] if veh else None,
+                        # PILNA kliento info (admin peržiūrai)
+                        "engine_code": engine_code if engine_code else None,
+                        "fuel_type": fuel_type_raw if fuel_type_raw else None,
                         "vin_provided": bool(vin_raw),
+                        "vin_last4": vin_last4,  # tik paskutiniai 4 simb. saugumui
                         "is_vin": is_real_vin,
+                        "fault_description": fault_desc[:500] if fault_desc else None,
                         "fault_description_provided": bool(fault_desc),
+                        "additional_info": additional_info[:1000] if additional_info else None,
+                        "had_image": has_image,
+                        "image_recognized_codes": image_recognized_codes,
+                        "is_followup": is_followup,
                         "is_unknown_code": c in unknown_set,
                         "batch_size": len(codes),
                         "created_at": now,
@@ -1793,6 +1817,68 @@ async def admin_error_checks_recent(limit: int = 50, authorization: str | None =
         if isinstance(r.get("created_at"), datetime):
             r["created_at"] = _iso_utc(r["created_at"])
     return {"items": rows}
+
+
+@api_router.get("/admin/error-check-detail")
+async def admin_error_check_detail(
+    session_id: str | None = None,
+    visitor_id: str | None = None,
+    user_email: str | None = None,
+    created_at: str | None = None,
+    authorization: str | None = Header(default=None),
+):
+    """Grąžina visus tos pačios paieškos kodus (pagal session_id + created_at) su pilna kliento info.
+    
+    Logika: viena paieška gali turėti kelis kodus (batch). Identifikuojam ją pagal session_id ir laiką
+    (±5 min) – grąžinam visus susijusius dokumentus + susietą error_report (jei yra) su pilna analize.
+    """
+    _require_admin(authorization)
+    db = _get_db()
+    if db is None:
+        raise HTTPException(status_code=503, detail="DB offline")
+
+    query: dict = {}
+    if session_id:
+        query["session_id"] = session_id
+    if visitor_id:
+        query["visitor_id"] = visitor_id
+    if user_email:
+        query["user_email"] = user_email
+
+    # Laiko langas: ±5 min
+    if created_at:
+        try:
+            ts = datetime.fromisoformat(created_at.replace("Z", "+00:00"))
+            query["created_at"] = {"$gte": ts - timedelta(minutes=5), "$lte": ts + timedelta(minutes=5)}
+        except Exception:
+            pass
+
+    if not query:
+        raise HTTPException(status_code=400, detail="Reikia bent session_id, visitor_id arba user_email.")
+
+    cur = db.error_checks.find(query, {"_id": 0}).sort("created_at", 1).limit(50)
+    items = await cur.to_list(50)
+    for r in items:
+        if isinstance(r.get("created_at"), datetime):
+            r["created_at"] = _iso_utc(r["created_at"])
+
+    # Surandam ataskaitą (jei yra report_id)
+    report = None
+    report_id = None
+    for it in items:
+        if it.get("report_id"):
+            report_id = it["report_id"]
+            break
+    if report_id:
+        rdoc = await db.error_reports.find_one({"report_id": report_id}, {"_id": 0})
+        if rdoc:
+            if isinstance(rdoc.get("created_at"), datetime):
+                rdoc["created_at"] = _iso_utc(rdoc["created_at"])
+            if isinstance(rdoc.get("expires_at"), datetime):
+                rdoc["expires_at"] = _iso_utc(rdoc["expires_at"])
+            report = rdoc
+
+    return {"checks": items, "report": report, "report_id": report_id}
 
 
 @api_router.get("/admin/feedbacks")
