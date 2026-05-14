@@ -1318,12 +1318,19 @@ async def check_error(req: ErrorCheckRequest, request: Request, authorization: s
 
     sid = (req.session_id or "err-default").strip() or "err-default"
 
+    # Follow-up'ams (patikslinimams) naudojam GREITESNĮ Gemini 2.5-flash modelį:
+    #   • Pirminė analizė turėjo kontekstą, klientui jau parodyta. Patikslinimas turi tik
+    #     pridėti naują info – tam pakanka flash modelio (3-5× greitesnis nei pro).
+    #   • Sumažina vartotojo laukimą po „Analizuoti iš naujo" iki ~10-15 s.
+    # Pirminei analizei (be additional_info) liekam su pro – didžiausias tikslumas.
+    model_name = "gemini-2.5-flash" if is_followup else "gemini-2.5-pro"
+
     try:
         chat = LlmChat(
             api_key=api_key,
             session_id=sid,
             system_message=ERROR_ANALYZER_PROMPT,
-        ).with_model("gemini", "gemini-2.5-pro").with_params(temperature=0.0, top_p=1)
+        ).with_model("gemini", model_name).with_params(temperature=0.0, top_p=1)
 
         # Sukuriam UserMessage – su nuotrauka, jei pateikta
         if has_image:
@@ -1336,6 +1343,7 @@ async def check_error(req: ErrorCheckRequest, request: Request, authorization: s
             msg = UserMessage(text=user_prompt)
 
         analysis = await chat.send_message(msg)
+        logger.info("🤖 check-error model=%s is_followup=%s has_image=%s code=%s", model_name, is_followup, has_image, raw_codes[:60])
 
         # Ištraukiam ir pašalinam DiaGO_META bloką
         analysis, known_codes, unknown_codes_meta, severity_map, needs_clarification, clarification_question = _parse_diago_meta(analysis or "")
