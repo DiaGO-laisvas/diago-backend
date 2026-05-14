@@ -794,13 +794,41 @@ PRIVALOMA ELGSENA, KAI KODAS YRA MANUFACTURER-SPECIFIC (P1xxx, P3xxx, B1xxx, B2x
 5) **U0xxx, P0xxx, B0xxx, C0xxx kodams** (TIKRAI generic) – galima atsakyti tiesiai, be šių apsaugų, NES jie standartizuoti SAE J2012/J1979.
 
 PAVYZDYS NETEISINGO ELGESIO (NIEKADA TAIP NEDARYKITE):
-❌ „Jūsų BMW užfiksuotas klaidos kodas P161C nurodo problemą su alyvos būklės jutikliu (OZS). Klaida reiškia, kad DDE negauna signalo." – per daug užtikrintas, neatsižvelgta į alternatyvią interpretaciją (DDE coding mismatch), nepaklausta variklio kodo.
+❌ „Jūsų BMW užfiksuotas klaidos kodas P161C nurodo problemą su alyvos būklės jutikliu (OZS). Klaida reiškia, kad DDE negauna signalo." – per daug užtikrintas, neatsižvelgta į alternatyvią interpretaciją (smooth running control cylinder 1), nepaklausta variklio kodo.
 
 PAVYZDYS TEISINGO ELGESIO:
-✅ „P161C yra **BMW gamintojo specifikinis kodas**, kurio tiksli reikšmė priklauso nuo variklio ir DDE versijos. Greičiausiai tai vienas iš dviejų:
-   • **Alyvos būklės jutiklis (OZS / Ölzustandssensor)** – dažniau M57/N57 dyzeliuose;
-   • **DDE konfigūracijos / kodavimo neatitikimas** – dažniau po DDE pakeitimo ar programinės įrangos atnaujinimo.
-   Tikslesnei diagnostikai prašom nurodyti variklio kodą (pvz., M57N2, N47, N57) ir gamybos metus."
+✅ „P161C yra **BMW gamintojo specifikinis kodas**, kurio tiksli reikšmė priklauso nuo variklio ir DDE versijos. Jūsų pateiktais duomenimis (BMW + dyzelis), tai gali būti:
+   • **Smooth running control deviation – 1-as cilindras** – dažniausia interpretacija N47/N57 dyzeliuose (P0263 atitikmuo BMW DDE pavadinime). Reiškia, kad DDE matuoja netolygų 1-ojo cilindro injektoriaus įnašą (mg/stk korekcija viršija ±6 mg/stk).
+     Tipinės priežastys: prakiuręs/dėvėjęsis 1-ojo cilindro injektorius, sukietėjusios varinės sandarinimo tarpinės, EGR vožtuvo gedimas, žema kompresija 1-ame cilindre.
+   • **Alyvos būklės jutiklis (OZS / Ölzustandssensor)** – kai kuriuose BMW modeliuose ir DDE versijose;
+   Tikslesnei diagnostikai prašom nurodyti tikslų variklio kodą (pvz., N47, N57) ir gamybos metus."
+
+🔴🔴 KLIENTO PATIKSLINIMO TAISYKLĖ (PRIVALOMA – KRITIŠKAI SVARBI):
+
+Kai sistema perduoda jums lauką „🔄 PAPILDOMA INFORMACIJA NUO KLIENTO" — TAI YRA AUKŠČIAUSIO PRIORITETO duomuo. Klientas pamatė ką nors konkretaus savo skeneryje, dokumentacijoje, automobilyje arba pajuto simptomus. Jūsų pareiga:
+
+1. **NIEKADA neatmeskite** kliento pateiktos informacijos kaip „skenerio klaidos", „neteisingo aprašymo", „universalios įrangos netikslumo" ar pan. Tai didžiulė pagarbos klaida ir dažnai – DAR diagnozinė klaida.
+
+2. **NIEKADA nesakykite** kliento patikslinime: „Jūsų atveju, pranešimas apie X yra netikslumas" arba „skeneris klaidingai interpretuoja" — net jei iš tiesų taip mažai tikėtina. Klientas gali matyti dokumentaciją ar tikrą oficialų BMW/VAG diagnostikos rezultatą.
+
+3. **Jei kliento patikslinta info NESUTAMPA su jūsų pirmine interpretacija** — TAI YRA STIPRUS SIGNALAS, kad jūsų pirminė interpretacija buvo NETEISINGA. Tarp galimų manufacturer-specific kodo interpretacijų PASIRINKITE TĄ, KURI ATITINKA kliento pateikto info. PERRAŠYKITE analizę, nepateisinkite senos.
+
+4. **Konkretus pavyzdys**:
+   - Pirmas atsakymas: „P161C BMW = greičiausiai alyvos būklės jutiklis OZS"
+   - Klientas patikslina: „problema susijusi su cylinder 1"
+   - ❌ NETEISINGAI: „Jūsų skeneris klaidingai rodo cylinder 1, iš tikrųjų tai OZS"
+   - ✅ TEISINGAI: „Atsižvelgiant į jūsų patikslinimą apie 1-ą cilindrą — P161C BMW DDE TIKRAI reiškia
+     ‚Smooth running control deviation cylinder 1', susijusią su 1-ojo cilindro injektoriaus įnašu.
+     Mano pirminė OZS interpretacija buvo netiksli. Korekcinė analizė: ..."
+
+5. **Jei klientas pateikė miglotą patikslinimą** ar jis nepadeda atskirti interpretacijų — vis tiek
+   RIMTAI atsižvelkite į tai, kas pasakyta, ir aiškiai pasakykit, ko dar trūksta tikslesnei diagnozei
+   (per DiaGO_META needs_clarification=yes).
+
+6. **Stilius patikslintame atsakyme**:
+   - Pradėkite skiltį „## Klaidos paaiškinimas" sakiniu: „Atsižvelgdamas į jūsų patikslintą informaciją (...) – patikslintas paaiškinimas:" (jei pirma analizė klydo)
+   - ARBA: „Jūsų pateiktas patikslinimas patvirtina pirminę diagnozę:" (jei pirma analizė buvo teisinga)
+   - NIEKADA: „Jūsų pateiktas X yra netikslumas..."
 
 🔴🔴🔴 OEM DETALIŲ KODŲ TAISYKLĖ (ABSOLIUTI – KRITIŠKAI SVARBI):
 **NIEKADA NEGENERUOKITE/NEIŠGALVOKITE OEM DETALIŲ NUMERIŲ ŽEMĖS ŪKIO, STATYBINEI, SANDĖLIAVIMO IR SUNKVEŽIMIŲ TECHNIKAI.**
@@ -1252,9 +1280,19 @@ async def check_error(req: ErrorCheckRequest, request: Request, authorization: s
         user_prompt += f"\nKliento aprašyti simptomai: {fault_desc}"
     if additional_info:
         user_prompt += (
-            f"\n\n🔄 PAPILDOMA INFORMACIJA NUO KLIENTO (po pirmos analizės): {additional_info}\n"
-            "Atsižvelkite į šią naują informaciją ir, jei reikia, PAKEISKITE/PATIKSLINKITE ankstesnę analizę. "
-            "Jei naują informaciją pateikus liko tik VIENA interpretacija – DiaGO_META nustatykite needs_clarification: false."
+            "\n\n🔄🔴 KLIENTO PATIKSLINIMAS (PRIORITETAS – PRIVALOMA RIMTAI ATSIŽVELGTI):\n"
+            f"\"\"\"{additional_info}\"\"\"\n\n"
+            "PRIVALOMA elgsena pagal KLIENTO PATIKSLINIMO TAISYKLĘ sistemos prompt'e:\n"
+            "• NIEKADA NEATMESKITE šio patikslinimo kaip 'skenerio klaidos' ar 'neteisingo aprašymo'.\n"
+            "• Jei šis patikslinimas NESUTAMPA su jūsų pirmine interpretacija – TAI YRA STIPRUS SIGNALAS,\n"
+            "  kad pirminė interpretacija galėjo būti neteisinga. PERRINKITE galimą interpretaciją iš\n"
+            "  manufacturer-specific kodo galimybių, kuri ATITINKA šį patikslinimą.\n"
+            "• PERRAŠYKITE analizę pagal naują info. NETEISINKITE senos interpretacijos.\n"
+            "• Pradėkite skiltį '## Klaidos paaiškinimas' žodžiais: 'Atsižvelgdamas į jūsų patikslintą\n"
+            "  informaciją (...) – patikslintas paaiškinimas:' (jei reikia keisti interpretaciją)\n"
+            "  arba 'Jūsų pateiktas patikslinimas patvirtina pirminę diagnozę:' (jei buvo teisinga).\n"
+            "• Jei patikslinta info pašalino dviprasmybę – DiaGO_META: needs_clarification: no.\n"
+            "• Jei vis dar reikia info – needs_clarification: yes su KITU klausimu (ne tuo pačiu)."
         )
     if req.previous_analysis:
         user_prompt += (
