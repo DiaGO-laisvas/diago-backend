@@ -715,7 +715,7 @@ async def chat_with_diago(req: ChatRequest):
         raise
     except Exception as e:
         logger.exception("Chat failure")
-        raise HTTPException(status_code=502, detail=f"Atsakymas nepavyko: {str(e)[:120]}")
+        raise HTTPException(status_code=502, detail=_friendly_llm_error(e, context="Atsakymas nepavyko"))
 
 
 # ============================
@@ -1318,12 +1318,14 @@ async def check_error(req: ErrorCheckRequest, request: Request, authorization: s
 
     sid = (req.session_id or "err-default").strip() or "err-default"
 
-    # Follow-up'ams (patikslinimams) naudojam GREITESNĮ Gemini 2.5-flash modelį:
-    #   • Pirminė analizė turėjo kontekstą, klientui jau parodyta. Patikslinimas turi tik
-    #     pridėti naują info – tam pakanka flash modelio (3-5× greitesnis nei pro).
-    #   • Sumažina vartotojo laukimą po „Analizuoti iš naujo" iki ~10-15 s.
-    # Pirminei analizei (be additional_info) liekam su pro – didžiausias tikslumas.
-    model_name = "gemini-2.5-flash" if is_followup else "gemini-2.5-pro"
+    # GEMINI MODELIO PASIRINKIMAS:
+    # Nemokama Google AI Studio kvota:
+    #   • Gemini 2.5 Pro:   ~25–100 užklausų/dieną (LABAI mažai produkciniam naudojimui)
+    #   • Gemini 2.5 Flash: 1500 užklausų/dieną + 15 req/min (priimtina)
+    # Todėl PIRMINĖ analizė taip pat naudoja Flash (kokybės skirtumas mūsų diagnostiniam
+    # prompt'ui yra minimalus, bet kvota 15-60× didesnė).
+    # Pro liksta tik ataskaitos viduje, kai bus mokama kvota.
+    model_name = "gemini-2.5-flash"
 
     try:
         chat = LlmChat(
@@ -1629,7 +1631,7 @@ async def check_error(req: ErrorCheckRequest, request: Request, authorization: s
         raise
     except Exception as e:
         logger.exception("Error check failure")
-        raise HTTPException(status_code=502, detail=f"Analizė nepavyko: {str(e)[:120]}")
+        raise HTTPException(status_code=502, detail=_friendly_llm_error(e, context="Analizė nepavyko"))
 
 
 # ============================
@@ -1730,6 +1732,44 @@ async def admin_login(req: AdminLoginRequest):
     token = _make_admin_token(expected_email)
     exp = int((datetime.now(timezone.utc) + timedelta(hours=12)).timestamp())
     return AdminLoginResponse(token=token, email=expected_email, expires_at=exp)
+
+
+@api_router.get("/admin/llm-test")
+async def admin_llm_test(authorization: str | None = Header(default=None)):
+    """Diagnostikos endpoint'as – patikrina, ar Gemini raktas veikia.
+    Padaro paprasčiausią užklausą ('ping') ir grąžina rezultatą.
+    Naudojama Render aplinkos testavimui be reikalo deginti AI kvotos.
+    """
+    _require_admin(authorization)
+    api_key, src = _get_llm_key()
+    out = {
+        "key_source": src,
+        "key_present": bool(api_key),
+        "key_preview": (api_key[:6] + "..." + api_key[-4:]) if api_key and len(api_key) > 12 else None,
+        "gemini_env_set": bool(os.environ.get("GEMINI_API_KEY")),
+        "emergent_env_set": bool(os.environ.get("EMERGENT_LLM_KEY")),
+        "model_tested": "gemini-2.5-flash",
+        "ok": False,
+        "reply": None,
+        "error": None,
+    }
+    if not api_key:
+        out["error"] = "Nei GEMINI_API_KEY, nei EMERGENT_LLM_KEY nenustatytas Render aplinkoje."
+        return out
+    try:
+        test_chat = LlmChat(
+            api_key=api_key,
+            session_id="admin-llm-test",
+            system_message="Tu esi diagnostikos asistentas. Atsakyk vienu žodžiu.",
+        ).with_model("gemini", "gemini-2.5-flash")
+        reply = await test_chat.send_message(UserMessage(text="Atsakyk vienu žodžiu: 'OK'"))
+        out["ok"] = True
+        out["reply"] = (reply or "")[:200]
+    except Exception as e:
+        logger.exception("LLM test failed")
+        out["error"] = _friendly_llm_error(e, context="LLM testas nepavyko")
+        out["error_raw"] = str(e)[:600]
+    return out
 
 
 @api_router.get("/admin/stats")
@@ -3151,6 +3191,49 @@ def _get_llm_key() -> tuple[str, str]:
     if e:
         return e, "emergent"
     return "", "none"
+
+
+def _friendly_llm_error(e: Exception, context: str = "Analizė nepavyko") -> str:
+    """Konvertuoja techninę LLM klaidą į vartotojui suprantamą žinutę su konkrečiu sprendimu.
+    Tai SUPER svarbu produkcijoje, nes vartotojas mato tik 1 eilutę.
+    """
+    raw = str(e)
+    low = raw.lower()
+    # Bandom išgauti error JSON iš litellm exception teksto
+    import re as _re
+    msg_match = _re.search(r'"message"\s*:\s*"([^"]{5,400})"', raw)
+    code_match = _re.search(r'"code"\s*:\s*(\d{3})', raw)
+    status_match = _re.search(r'"status"\s*:\s*"([A-Z_]+)"', raw)
+    inner_msg = msg_match.group(1) if msg_match else ""
+    inner_code = code_match.group(1) if code_match else ""
+    inner_status = status_match.group(1) if status_match else ""
+
+    # === Konkretūs scenarijai ===
+    if "api_key_invalid" in low or "api key not valid" in low or inner_status == "INVALID_ARGUMENT" and "api key" in (inner_msg or "").lower():
+        return (f"{context}: Gemini API raktas yra neteisingas. Patikrinkite GEMINI_API_KEY reikšmę Render → Environment "
+                f"(turi būti iš https://aistudio.google.com/app/apikey, prasidedantis 'AIza...').")
+    if "permission_denied" in low or inner_status == "PERMISSION_DENIED":
+        return (f"{context}: Gemini API neturi leidimo. Įsitikinkite, kad raktas yra įjungtas Google Cloud/AI Studio "
+                f"projektui ir 'Generative Language API' yra aktyvuotas.")
+    if "quota" in low or "429" in raw or inner_status in ("RESOURCE_EXHAUSTED", "QUOTA_EXCEEDED"):
+        return (f"{context}: Gemini API kvota išnaudota (15 RPM / 1500 per dieną nemokamame plane). "
+                f"Palaukite 1 min. arba įjunkite mokamą planą Google AI Studio.")
+    if "model" in low and ("not found" in low or "not exist" in low or "404" in raw):
+        return (f"{context}: Gemini modelis 'gemini-2.5-flash' nepasiekiamas su jūsų raktu. "
+                f"Patikrinkite, ar raktas turi prieigą prie naujausių modelių, arba parašykite mums.")
+    if "safety" in low or "blocked" in low or "content_filter" in low:
+        return (f"{context}: Gemini saugumo filtras blokavo užklausą. Pabandykite be paveikslo arba performuluokite.")
+    if "image" in low and ("too large" in low or "size" in low):
+        return (f"{context}: Nuotrauka per didelė. Sumažinkite iki <4 MB ir bandykite dar kartą.")
+    if "deadline" in low or "timeout" in low:
+        return (f"{context}: Gemini neatsakė laiku (timeout). Bandykite dar kartą po kelių sekundžių.")
+
+    # === Bendras fallback su MAX info, kad galėtume diagnozuoti ===
+    snippet = (inner_msg or raw)[:400].replace("\n", " ").strip()
+    if inner_code or inner_status:
+        return f"{context} (Gemini {inner_code or inner_status}): {snippet}"
+    return f"{context}: {snippet}"
+
 
 
 @app.on_event("startup")
