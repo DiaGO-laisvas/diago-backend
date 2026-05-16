@@ -673,9 +673,9 @@ async def chat_with_diago(req: ChatRequest):
     if len(user_text) > 2000:
         raise HTTPException(status_code=400, detail="Žinutė per ilga (max 2000 simbolių).")
 
-    api_key = os.environ.get("EMERGENT_LLM_KEY", "")
+    api_key, key_src = _get_llm_key()
     if not api_key:
-        raise HTTPException(status_code=500, detail="LLM raktas nesukonfigūruotas.")
+        raise HTTPException(status_code=500, detail="LLM raktas nesukonfigūruotas (GEMINI_API_KEY arba EMERGENT_LLM_KEY).")
 
     sid = (req.session_id or "default").strip() or "default"
 
@@ -1245,7 +1245,7 @@ async def check_error(req: ErrorCheckRequest, request: Request, authorization: s
                     ),
                 )
 
-    api_key = os.environ.get("EMERGENT_LLM_KEY", "")
+    api_key, _src = _get_llm_key()
     if not api_key:
         raise HTTPException(status_code=500, detail="LLM raktas nesukonfigūruotas.")
 
@@ -2218,7 +2218,7 @@ async def admin_chat_analytics(
     # 4) AI santrauka (neprivaloma)
     summary = None
     if use_ai:
-        api_key = os.environ.get("EMERGENT_LLM_KEY", "")
+        api_key, _src = _get_llm_key()
         if api_key:
             try:
                 # Imam top 50 unikalių pirmų žinučių
@@ -2239,7 +2239,7 @@ async def admin_chat_analytics(
                 logger.warning(f"AI summary failed: {e}")
                 summary = f"AI santrauka nepavyko: {str(e)[:100]}"
         else:
-            summary = "EMERGENT_LLM_KEY nenustatytas."
+            summary = "LLM raktas (GEMINI_API_KEY arba EMERGENT_LLM_KEY) nenustatytas."
 
     return {
         "period_days": days,
@@ -3137,11 +3137,30 @@ async def _ensure_indexes():
 app.include_router(api_router)
 
 
+def _get_llm_key() -> tuple[str, str]:
+    """Grąžina (raktas, šaltinis). 
+    Pirmenybė: GEMINI_API_KEY (tikras Google AI Studio raktas) > EMERGENT_LLM_KEY (universalus per Emergent).
+    Tai leidžia vartotojui užsikrauti SAVO Gemini kvotą ir nepriklausyti nuo bendrų kreditų.
+    """
+    g = (os.environ.get("GEMINI_API_KEY") or "").strip()
+    if g and not g.startswith("sk-emergent"):  # tikras Google key
+        # LiteLLM auto-aptinka šį env var natyviai per Gemini provider
+        os.environ["GEMINI_API_KEY"] = g
+        return g, "gemini-direct"
+    e = (os.environ.get("EMERGENT_LLM_KEY") or "").strip()
+    if e:
+        return e, "emergent"
+    return "", "none"
+
+
 @app.on_event("startup")
 async def startup():
     logger.info("DiaGO API starting up...")
-    if not os.environ.get("EMERGENT_LLM_KEY"):
-        logger.warning("⚠️  EMERGENT_LLM_KEY env var nenustatytas! AI funkcijos neveiks.")
+    _key, _src = _get_llm_key()
+    if not _key:
+        logger.warning("⚠️  Nei GEMINI_API_KEY, nei EMERGENT_LLM_KEY nenustatytas! AI funkcijos neveiks.")
+    else:
+        logger.info("✅ LLM raktas iš: %s", _src)
     if not os.environ.get("MONGODB_URI"):
         logger.warning("⚠️  MONGODB_URI nenustatytas – analitika neveiks.")
     if not os.environ.get("ADMIN_PASSWORD"):
