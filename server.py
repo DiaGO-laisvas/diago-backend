@@ -759,6 +759,79 @@ PRIVALOMA ELGSENA, KAI NUOTRAUKOS NĖRA IR PATEIKTA žemės ūkio / statybinė /
 
 Kai pateikta NUOTRAUKA – ŠIS įspėjimas NEREIKALINGAS, nes tikrasis gamintojo aprašymas matomas ir naudojamas tiesiogiai (žr. nuotraukos instrukcijas).
 
+🔴🔴🔴 BARE NUMERIC KODŲ TAISYKLĖ – ABSOLIUTI ANTI-HALIUCINACIJA (KRITIŠKAI SVARBI):
+Kodai BE prefikso (be P, B, C, U raidžių pradžioje) ir BE SPN.FMI taško – tokie kaip `3297`, `5003`, `1234`, `522506`, `15251` – yra **GAMINTOJO VIDINIAI DTC numeriai** (Case IH EST, John Deere SA, CAT ET ir kt.).
+
+❗ KIEKVIENO TOKIO KODO ATVEJU KAI TECHNIKOS TIPAS yra žemės ūkio / statybinė / sandėliavimo / sunkvežimių / motociklų (NE LENGVASIS AUTOMOBILIS) IR NĖRA NUOTRAUKOS / NĖRA KLIENTO APRAŠYTŲ GAMINTOJO DUOMENŲ:
+
+1) **GRIEŽTAI DRAUDŽIAMA** spėti, ką šis kodas reiškia, remiantis:
+   ❌ Generinio P-kodo analogija (NIEKADA nesakykite „`3297` panašu į `P3297` ir reiškia variklio sūkių daviklį")
+   ❌ Atminties asociacijomis su panašiais numeriais
+   ❌ „Pagal mano žinias šis kodas dažniausiai reiškia..."
+   ❌ Konkrečių detalių pavadinimu (alkūninio veleno daviklis, ABS modulis ir t.t.) NEBANDYKITE NUSPĖTI
+
+2) **PRIVALOMA** vietoj to atvirai pasakyti:
+   ```
+   ## ⚠️ Šis kodas reikalauja gamintojo dokumentacijos
+   
+   Klaidos kodas **{KODAS}** be raidinio prefikso yra **{GAMINTOJAS} vidinis DTC numeris**, kurio reikšmė
+   gali būti patvirtinta TIK gamintojo serviso sistemoje arba skenerio ekrane:
+   
+   • **Case IH / New Holland / CNH** → CNH EST
+   • **John Deere** → Service ADVISOR
+   • **Caterpillar** → CAT ET (Electronic Technician)
+   • **Komatsu** → KomVis / Plus+1 (priklausomai nuo serijos)
+   • **Volvo CE / Hitachi** → Tech Tool / Dr. ZX
+   • **Linde / Jungheinrich** → vietinis dileris
+   
+   Be šio šaltinio aš **negaliu** pateikti tikslios šio kodo reikšmės – bet kuri mano spėjimo
+   versija būtų rizikinga, nes tas pats numeris skirtingiems gamintojams ir net skirtingoms tos
+   pačios markės serijoms reiškia **visiškai skirtingus gedimus**.
+   
+   💡 **Geriausias žingsnis dabar:**
+   1. **Įkelkite skenerio ekrano nuotrauką** – joje paprastai matosi oficialus gamintojo aprašymas
+      (pvz., „Rail pressure positive deviation high", „Forward gear solenoid valve"). DiaGO tada
+      analizuos pagal jūsų gamintojo tekstą, ne pagal generinį spėjimą.
+   2. **ARBA** lauke „Aprašykite gedimą / simptomus" įveskite gamintojo aprašymą iš EST/SA/ET
+      ir kokie simptomai (pvz., variklis netraukia, neužsiveda šaltai, kabina rodo galios ribojimą).
+   ```
+
+3) **TIK PO** šio įspėjimo galite pateikti **GALIMŲ SISTEMŲ SĄRAŠĄ** (be konkrečių diagnozių):
+   ```
+   ## Galimos pažeistos sistemos (orientacinis sąrašas, NE diagnozė)
+   
+   Pagal kodo numerio diapazoną ({pvz., 3000–3999}) ir technikos tipą (Case IH Tier 3 traktorius),
+   tikėtinos sritys (eilės tvarka, dažniausios pirmiausia):
+   • Aukšto slėgio kuro sistema (common rail, CP3 siurblys, injektoriai)
+   • Žemo slėgio kuro tiekimas (filtras, gear pump, vamzdynas)
+   • Variklio elektronika (ECM/DCU)
+   • Transmisijos hidraulika
+   
+   ⚠️ **Šis sąrašas yra TIK orientacinis** – be gamintojo aprašymo NEGALIMA pasakyti, KURI iš jų yra
+   tikroji priežastis. Neperkainojant detalių prieš tai negavus tikrojo aprašymo.
+   ```
+
+4) **SKILTYJE „Galimos priežastys"**:
+   ❌ NESIŪLYKITE konkrečių detalių keitimo („pakeiskite alkūninio veleno daviklį", „purkštukai")
+   ✅ Vietoje to PARAŠYKITE: „Konkrečios priežastys priklauso nuo tikslaus kodo aprašymo. Gavę aprašymą iš EST/SA/ET arba įkėlę nuotrauką, gausite tikslią priežasčių analizę."
+
+5) **SKILTYJE „Rekomendacijos"**:
+   PRIMINKITE 3 žingsnių algoritmą:
+   • Patikrinti kodą gamintojo serviso įrankyje (EST/SA/ET)
+   • ARBA įkelti skenerio ekrano nuotrauką į DiaGO
+   • ARBA pridėti gedimo aprašymą + kliento aprašymą lauke „Patikslinti"
+
+6) **PASITIKĖJIMAS** (DiaGO_META severity) – tokiems atvejams VISADA `info` (ne `warning`/`critical`), nes neturime patvirtinimo. severity nustatomas tik po to, kai gauname gamintojo aprašymą.
+
+7) **VIENA IŠIMTIS**: jei klientas LAUKE „Aprašykite gedimą" arba „Patikslinti" pats nurodė gamintojo aprašymą (pvz., „pagal EST: Rail pressure positive deviation high"), tada elgiamasi pagal įprastą logiką – kliento pateiktas aprašymas yra PATIKRINTAS šaltinis ir turi pirmenybę prieš jūsų spėjimą.
+
+PAVYZDYS NETEISINGO ELGESIO (NIEKADA TAIP NEDARYKITE):
+❌ „Klaidos kodas 3297 jūsų Case IH Puma 210 traktoriuje rodo variklio sūkių daviklio (alkūninio veleno daviklio) signalo problemą. Tipiškos priežastys: daviklio gedimas, kabelių pažeidimai..."
+(Tai HALIUCINACIJA – 3297 Case IH EST sistemoje yra rail pressure deviation, ne alkūninio veleno daviklis.)
+
+PAVYZDYS TEISINGO ELGESIO:
+✅ „Klaidos kodas 3297 be raidinio prefikso yra Case IH (CNH) vidinis DTC numeris. Be CNH EST patvirtinimo aš negaliu pateikti tikslios reikšmės – tas pats numeris kitose Case IH serijose ar kitų gamintojų mašinose gali reikšti visiškai skirtingus gedimus. Pagal kodo diapazoną (3000–3999) ir jūsų technikos tipą (Case IH Puma Tier 3) tikėtinos sritys: aukšto slėgio kuro sistema, žemo slėgio tiekimas, variklio elektronika. Prašome įkelti skenerio nuotrauką arba pateikti aprašymą iš EST – tada gausite tikslią diagnozę."
+
 🔴 OBD-II MANUFACTURER-SPECIFIC KODŲ TAISYKLĖ (PRIVALOMA – KRITIŠKAI SVARBI):
 SAE J2012 standartas apibrėžia DTC kodų formatą, bet tik dalis kodų yra TIKRAI generic (apibrėžti standarte). Likę – manufacturer-specific, t.y. KIEKVIENAS gamintojas (BMW, VW, Audi, Mercedes-Benz, Ford, Toyota, Volvo ir t.t.) **savaip apibrėžia** šių kodų reikšmę. TAS PATS kodas BMW automobiliui ir VW automobiliui DAŽNAI reiškia VISIŠKAI SKIRTINGUS gedimus.
 
@@ -1315,6 +1388,35 @@ async def check_error(req: ErrorCheckRequest, request: Request, authorization: s
         "PRIVALOMA: pirmoje atsakymo dalyje pateik ## DiaGO_META bloką su known/unknown kodų sąrašais bei severity_critical/warning/info. "
         "Jei daugiau nei vienas kodas – analizuok juos kartu, susiek susijusius gedimus, atsižvelk į simptomus."
     )
+
+    # === BARE NUMERIC KODŲ DETEKCIJA (anti-haliucinacijos sustiprinimas) ===
+    # Jei vartotojas įvedė bare numeric kodą (pvz., "3297", "5003", "522506") IR technika yra
+    # NE lengvasis automobilis (kuriam taikomas OBD-II SAE J2012 standartas), tada įjungiam GRIEŽTĄ
+    # taisyklę – AI negali spėti šio kodo reikšmės iš generinių OBD-II analogijų.
+    # Tai sprendžia problemą, kai pvz. Case IH Puma 210 kodas 3297 buvo neteisingai aiškintas
+    # kaip "alkūninio veleno daviklis" (tariamai P3297), o realiai tai CNH EST kodas
+    # "Rail pressure positive deviation high".
+    NON_OBD_EQUIPMENT = {"agriculture", "construction", "warehouse", "truck", "motorcycle"}
+    import re as _re
+    has_bare_numeric_code = any(
+        _re.match(r'^\d{3,7}(\.\d+)?$', c) for c in codes
+    ) if codes else False
+    if has_bare_numeric_code and eq in NON_OBD_EQUIPMENT and not has_image and not additional_info and not fault_desc:
+        user_prompt += (
+            "\n\n🔴🔴🔴 KRITIŠKAI SVARBU – BARE NUMERIC KODO ATVEJIS:\n"
+            f"Vartotojas įvedė skaitmeninį kodą BE raidinio prefikso (P/B/C/U) ir BE SPN.FMI taško. "
+            f"Technikos tipas: {eq_label} (NE lengvasis automobilis – todėl OBD-II SAE J2012 standartas NETAIKOMAS). "
+            "Be nuotraukos ir be gamintojo aprašymo iš EST/SA/ET – jūs PRIVALOTE taikyti "
+            "'BARE NUMERIC KODŲ TAISYKLĘ' iš sistemos prompt'o:\n"
+            "1) JOKIŲ konkretių detalių pavadinimu (alkūninio veleno daviklis, ABS modulis ir t.t.) NEGALIMA spėti.\n"
+            "2) JOKIŲ generinių P-kodų analogijų ('panašu į P3297, todėl variklio sūkių daviklis') – TAI HALIUCINACIJA.\n"
+            "3) Atsakymas TURI prasidėti aiškiu '## ⚠️ Šis kodas reikalauja gamintojo dokumentacijos' įspėjimu.\n"
+            "4) Toliau – tik bendros galimos sistemos pagal numerio diapazoną (orientacinis sąrašas, ne diagnozė).\n"
+            "5) Privalomai pasiūlykite klientui įkelti nuotrauką arba įvesti gamintojo aprašymą.\n"
+            "6) severity = 'info' (NE warning/critical), nes neturime patvirtinimo.\n"
+            "Jei NESILAIKYSITE šios taisyklės – klientas gali nusipirkti netinkamą detalę už šimtus eurų. "
+            "JŪSŲ ATSAKYMAS BUS NETEISINGAS IR KENKSMINGAS, JEI SUGALVOSITE KOKĮ NORS KONKRETŲ GEDIMĄ."
+        )
 
     sid = (req.session_id or "err-default").strip() or "err-default"
 
