@@ -690,7 +690,7 @@ async def chat_with_diago(req: ChatRequest):
             if prior["role"] == "user":
                 await chat.send_message(UserMessage(text=prior["content"]))
 
-        reply = await chat.send_message(UserMessage(text=user_text))
+        reply = await _send_with_retry(chat, UserMessage(text=user_text))
 
         _sessions[sid].append({"role": "user", "content": user_text})
         _sessions[sid].append({"role": "assistant", "content": reply})
@@ -1455,7 +1455,7 @@ async def check_error(req: ErrorCheckRequest, request: Request, authorization: s
         else:
             msg = UserMessage(text=user_prompt)
 
-        analysis = await chat.send_message(msg)
+        analysis = await _send_with_retry(chat, msg)
         logger.info("🤖 check-error model=%s is_followup=%s has_image=%s code=%s", model_name, is_followup, has_image, raw_codes[:60])
 
         # Ištraukiam ir pašalinam DiaGO_META bloką
@@ -3302,6 +3302,41 @@ def _get_llm_key() -> tuple[str, str]:
     if e:
         return e, "emergent"
     return "", "none"
+
+
+def _is_transient_llm_error(e: Exception) -> bool:
+    """Patikrina, ar klaida yra LAIKINA (verta retry) – Gemini overload, rate limit ir t.t."""
+    raw = str(e).lower()
+    transient_markers = [
+        "503", "overloaded", "high demand", "experiencing high",
+        "unavailable", "deadline", "timeout", "timed out",
+        "429", "rate limit", "resource_exhausted",
+        "internal error", "internal_server_error", "5xx",
+        "spikes in demand",
+    ]
+    return any(m in raw for m in transient_markers)
+
+
+async def _send_with_retry(chat, msg, max_retries: int = 2, base_delay: float = 2.5):
+    """Siunčia žinutę su automatiniu pakartojimu, jei Gemini grąžina transient klaidą (503, 429 ir t.t.).
+    Tai padeda apgaubti laikinus Google API overload'us – vartotojas dažniausiai nematys klaidos.
+    """
+    import asyncio as _asyncio
+    last_exc = None
+    for attempt in range(max_retries + 1):
+        try:
+            return await chat.send_message(msg)
+        except Exception as e:
+            last_exc = e
+            if not _is_transient_llm_error(e) or attempt >= max_retries:
+                raise
+            delay = base_delay * (2 ** attempt)  # 2.5s → 5s → 10s
+            logger.warning("⏳ Gemini transient klaida (bandymas %d/%d): %s. Pakartoju po %.1fs",
+                           attempt + 1, max_retries + 1, str(e)[:120], delay)
+            await _asyncio.sleep(delay)
+    if last_exc:
+        raise last_exc
+    raise RuntimeError("Nepavyko atlikti LLM užklausos po pakartojimų.")
 
 
 def _friendly_llm_error(e: Exception, context: str = "Analizė nepavyko") -> str:
