@@ -1216,8 +1216,18 @@ async def check_error(req: ErrorCheckRequest, request: Request, authorization: s
     has_image = bool(img_b64)
     is_followup = bool(additional_info or req.previous_analysis)
 
-    if not raw_codes and not has_image:
+    # Mikroautomobiliams (L6e/L7e) – klaidos kodas NEBŪTINAS, nes dažnai šios mašinos
+    # neturi standartinio OBD-II skaitytuvo ir diagnozuojamos pagal simptomus
+    # (CVT diržo slydimas, Kubota šaltas startas, Chatenet generatorius ir t.t.).
+    is_microcar = (eq == "microcar")
+
+    if not raw_codes and not has_image and not is_microcar:
         raise HTTPException(status_code=400, detail="Įveskite klaidos kodą arba įkelkite nuotrauką su klaidomis.")
+    if is_microcar and not raw_codes and not has_image and len(fault_desc) < 10:
+        raise HTTPException(
+            status_code=400,
+            detail="Aprašykite gedimo simptomus (bent 10 simbolių) arba įveskite klaidos kodą / įkelkite nuotrauką.",
+        )
     if eq not in EQUIPMENT_LABELS:
         raise HTTPException(status_code=400, detail="Neteisingas technikos tipas.")
 
@@ -1253,7 +1263,7 @@ async def check_error(req: ErrorCheckRequest, request: Request, authorization: s
     # Limitas priklauso nuo įvedimo būdo
     max_codes_limit = MAX_CODES_IMAGE if has_image else MAX_CODES_TYPED
     codes = _parse_codes(raw_codes, max_codes=max_codes_limit) if raw_codes else []
-    if not codes and not has_image:
+    if not codes and not has_image and not is_microcar:
         raise HTTPException(status_code=400, detail="Nepavyko atpažinti nė vieno klaidos kodo.")
     if len(codes) > max_codes_limit:
         codes = codes[:max_codes_limit]
