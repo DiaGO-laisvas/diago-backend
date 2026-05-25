@@ -551,10 +551,10 @@ DIAGO_SYSTEM_PROMPT = """Tu esi DiaGO klientų aptarnavimo konsultantas. DiaGO y
 ESMINĖ INFORMACIJA APIE DiaGO:
 - DiaGO teikia DVI atskiras paslaugas su SKIRTINGU technikos palaikymu:
   1. **Savitarnos diagnostikos stotelės** – TIK AUTOMOBILIAMS (fizinė diagnostika su OBD įrenginiu)
-  2. **Internetinė klaidų paieška** svetainėje diago.lt/klaidos – BET KOKIAI TECHNIKAI: automobiliams, motociklams, statybinei technikai (krautuvai, ekskavatoriai), žemės ūkio technikai (traktoriai, kombainai), sandėliavimo technikai (autokrautuvai) ir kt.
+  2. **Internetinė klaidų paieška** svetainėje diago.lt/klaidos – BET KOKIAI TECHNIKAI: automobiliams, mikroautomobiliams (Aixam, Ligier, Chatenet, Microcar), statybinei technikai (krautuvai, ekskavatoriai), žemės ūkio technikai (traktoriai, kombainai), sandėliavimo technikai (autokrautuvai) ir kt.
 
 🔴 KRITIŠKAI SVARBU – TECHNIKOS APRIBOJIMAI:
-- Klausiant „ar galiu patikrinti TRAKTORIŲ / motociklą / krautuvą / statybinę techniką?" – TAIP, **internetinė klaidų paieška veikia bet kokiai technikai**. Niekada nesakyk „skirta tik automobiliams" – tai NETIESA dėl klaidų paieškos paslaugos!
+- Klausiant „ar galiu patikrinti TRAKTORIŲ / mikroautomobilį / krautuvą / statybinę techniką?" – TAIP, **internetinė klaidų paieška veikia bet kokiai technikai**. Niekada nesakyk „skirta tik automobiliams" – tai NETIESA dėl klaidų paieškos paslaugos!
 - Tik FIZINĖS DiaGO stotelės skirtos automobiliams. Jei kas klausia apie traktoriaus diagnostiką stotelėje – pasakyk, kad fizinės stotelės skirtos tik automobiliams, BET internetinė klaidų paieška veikia ir traktoriams.
 
 =========================================
@@ -722,7 +722,7 @@ async def chat_with_diago(req: ChatRequest):
 # Error code analyzer
 # ============================
 EQUIPMENT_LABELS = {
-    "motorcycle": "motociklas",
+    "microcar": "mikroautomobilis (L6e/L7e)",
     "car": "automobilis",
     "construction": "statybinė technika",
     "agriculture": "žemės ūkio technika",
@@ -762,7 +762,7 @@ Kai pateikta NUOTRAUKA – ŠIS įspėjimas NEREIKALINGAS, nes tikrasis gamintoj
 🔴🔴🔴 BARE NUMERIC KODŲ TAISYKLĖ – ABSOLIUTI ANTI-HALIUCINACIJA (KRITIŠKAI SVARBI):
 Kodai BE prefikso (be P, B, C, U raidžių pradžioje) ir BE SPN.FMI taško – tokie kaip `3297`, `5003`, `1234`, `522506`, `15251` – yra **GAMINTOJO VIDINIAI DTC numeriai** (Case IH EST, John Deere SA, CAT ET ir kt.).
 
-❗ KIEKVIENO TOKIO KODO ATVEJU KAI TECHNIKOS TIPAS yra žemės ūkio / statybinė / sandėliavimo / sunkvežimių / motociklų (NE LENGVASIS AUTOMOBILIS) IR NĖRA NUOTRAUKOS / NĖRA KLIENTO APRAŠYTŲ GAMINTOJO DUOMENŲ:
+❗ KIEKVIENO TOKIO KODO ATVEJU KAI TECHNIKOS TIPAS yra žemės ūkio / statybinė / sandėliavimo / sunkvežimių / mikroautomobilių (NE LENGVASIS AUTOMOBILIS) IR NĖRA NUOTRAUKOS / NĖRA KLIENTO APRAŠYTŲ GAMINTOJO DUOMENŲ:
 
 1) **GRIEŽTAI DRAUDŽIAMA** spėti, ką šis kodas reiškia, remiantis:
    ❌ Generinio P-kodo analogija (NIEKADA nesakykite „`3297` panašu į `P3297` ir reiškia variklio sūkių daviklį")
@@ -908,7 +908,7 @@ Kai sistema perduoda jums lauką „🔄 PAPILDOMA INFORMACIJA NUO KLIENTO" — 
 
 LLM modeliai (įskaitant Jus) labai dažnai SUKURIA tikrumo įspūdį – sugalvoja netikrą numerį, kuris atrodo realus (pvz., John Deere stiliaus `RE217319`, `AL161037`, Case IH stiliaus `87421050`, CAT stiliaus `123-4567`). TOKIE NUMERIAI **NEEGZISTUOJA** ir VARTOTOJAS, juos pamatęs, gali nusipirkti netinkamą detalę už šimtus eurų. Tai sukelia REALŲ FINANSINĮ NUOSTOLĮ. JŪS BŪSITE ATSAKINGAS UŽ TAI.
 
-PRIVALOMOS taisyklės šiems technikos tipams (tractor, agriculture, construction, warehouse, truck, motorcycle gamintojų specifikiniai kodai):
+PRIVALOMOS taisyklės šiems technikos tipams (microcar, agriculture, construction, warehouse, truck gamintojų specifikiniai kodai):
 
 1) **Be NUOTRAUKOS** – stulpelyje „OEM kodas" PRIVALOMAI rašykite tik brūkšnį: `—`. NIEKADA negeneruokite jokios skaitmenų ir raidžių kombinacijos, kuri atrodytų kaip OEM numeris. Pastaboje paaiškinkite: „Tikslus OEM numeris priklauso nuo konkretaus modelio/serijinio numerio – ieškokite gamintojo oficialiame kataloge (žr. nuorodą žemiau)."
 
@@ -928,7 +928,7 @@ PRIVALOMOS taisyklės šiems technikos tipams (tractor, agriculture, constructio
 
    Pakeisti `<modelis>` į konkretų modelį (pvz., `6630`), `<detalė anglų k.>` – į detalės pavadinimą angliškai (pvz., `forward+gear+solenoid`).
 
-4) **Lengvieji automobiliai, motociklai (OBD-II)** – OEM numerius galite teikti (Bosch lambda zondas 0258006206 ir t.t.), nes šie kodai yra standartiniai SAE J2012 ir laisvai prieinami.
+4) **Lengvieji automobiliai (OBD-II)** – OEM numerius galite teikti (Bosch lambda zondas 0258006206 ir t.t.), nes šie kodai yra standartiniai SAE J2012 ir laisvai prieinami.
 
 PAVYZDŽIAI DRAUDŽIAMO ELGESIO (NIEKADA TAIP NEDARYKITE):
 ❌ John Deere reverso jutikliui įrašyti „RE217319" be šaltinio – DRAUDŽIAMA.
@@ -1229,7 +1229,7 @@ async def check_error(req: ErrorCheckRequest, request: Request, authorization: s
         )
 
     # Variklis ARBA degalų rūšis – bent vienas privalomas naujoms užklausoms
-    # (motociklams ir lengviems automobiliams – ypač svarbu manufacturer-specific kodams atskirti)
+    # (mikroautomobiliams (Aixam, Ligier, Chatenet, Microcar) ir lengviems automobiliams – ypač svarbu manufacturer-specific kodams atskirti)
     FUEL_TYPES_VALID = {"petrol", "diesel", "lpg", "cng", "hybrid", "electric", "other", ""}
     if fuel_type_raw not in FUEL_TYPES_VALID:
         fuel_type_raw = ""
@@ -1396,7 +1396,7 @@ async def check_error(req: ErrorCheckRequest, request: Request, authorization: s
     # Tai sprendžia problemą, kai pvz. Case IH Puma 210 kodas 3297 buvo neteisingai aiškintas
     # kaip "alkūninio veleno daviklis" (tariamai P3297), o realiai tai CNH EST kodas
     # "Rail pressure positive deviation high".
-    NON_OBD_EQUIPMENT = {"agriculture", "construction", "warehouse", "truck", "motorcycle"}
+    NON_OBD_EQUIPMENT = {"agriculture", "construction", "warehouse", "truck", "microcar"}
     import re as _re
     has_bare_numeric_code = any(
         _re.match(r'^\d{3,7}(\.\d+)?$', c) for c in codes
