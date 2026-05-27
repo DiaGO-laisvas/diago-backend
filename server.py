@@ -1580,7 +1580,10 @@ async def check_error(req: ErrorCheckRequest, request: Request, authorization: s
                 image_recognized_codes = (known_codes_list + unknown_codes_list) if has_image else None
 
                 docs = []
-                for c in codes:
+                # Mikroautomobiliams be kodo (tik aprašymas/nuotrauka) – įrašom 1 placeholder įrašą,
+                # kad admin matytų užklausą. Naudojame kodą "[BE_KODO]".
+                codes_to_save = codes if codes else ["[BE_KODO]"]
+                for c in codes_to_save:
                     docs.append({
                         "session_id": sid,
                         "user_id": user.get("user_id") if user else None,
@@ -1604,21 +1607,26 @@ async def check_error(req: ErrorCheckRequest, request: Request, authorization: s
                         "had_image": has_image,
                         "image_recognized_codes": image_recognized_codes,
                         "is_followup": is_followup,
-                        "is_unknown_code": c in unknown_set,
-                        "batch_size": len(codes),
+                        "is_unknown_code": (c == "[BE_KODO]") or (c in unknown_set),
+                        "is_no_code": (c == "[BE_KODO]"),  # mikroautomobilio simptomų užklausa
+                        "batch_size": len(codes_to_save),
                         "created_at": now,
                     })
                 if docs:
                     await db.error_checks.insert_many(docs)
 
-                # Saugome PILNĄ ataskaitą tik PRISIJUNGUSIEMS vartotojams su 14 d. galiojimu
-                if user and report_id_out:
+                # Saugome PILNĄ ataskaitą VISIEMS – tiek prisijungusiems, tiek anonimams
+                # (ankščiau buvo saugoma tik prisijungusiems → admin nematė anoniminių užklausų).
+                # Anonimams nuoroda neviešinama (nes user_id=None), bet admin tiek atskirai mato visas.
+                if report_id_out:
                     try:
                         expires_at = now + timedelta(days=14)
                         await db.error_reports.insert_one({
                             "report_id": report_id_out,
-                            "user_id": user.get("user_id"),
-                            "user_email": user.get("email"),
+                            "user_id": user.get("user_id") if user else None,
+                            "user_email": user.get("email") if user else None,
+                            "is_anonymous": user is None,
+                            "visitor_id": visitor_id_save,
                             "analysis": analysis,
                             "codes": codes,
                             "known_codes": known_codes_list,
