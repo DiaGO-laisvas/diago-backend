@@ -7,3 +7,4 @@ emergentintegrations
 aiosmtplib>=3.0.0
 email-validator>=2.0.0
 dnspython>=2.4.0
+scikit-learn>=1.3.0

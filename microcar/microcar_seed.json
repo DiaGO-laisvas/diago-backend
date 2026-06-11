@@ -1,0 +1,214 @@
+[
+  {
+    "id": "MC-001",
+    "category": "Transmission/CVT",
+    "title": "CVT diržo dėvėjimasis / slydimas",
+    "applies_to": {
+      "makes": ["Aixam", "Ligier", "Microcar", "Chatenet", "JDM", "Bellier", "Casalini"],
+      "engines": ["Kubota", "Lombardini", "Yanmar", "DCi", "Progress"],
+      "year_from": 2005,
+      "year_to": 2026
+    },
+    "symptoms_lt": [
+      "buksuoja diržas", "dirzas buksereja", "negaliu pajudėti", "važiuoja lėtai įkalnėje",
+      "trūksta galios įkalnėje", "girdėti spygimas pavažiavus", "vaziuoju o sūkiai auga, o greitis ne",
+      "po pravažiavimo cypia", "CVT slysta", "transmisija slysta"
+    ],
+    "symptoms_en": [
+      "cvt belt slipping", "belt slips", "loss of power uphill", "engine revs but no speed",
+      "screeching noise variator", "belt squeal", "no acceleration"
+    ],
+    "symptoms_fr": [
+      "courroie variateur patine", "perte de puissance en côte", "bruit aigu transmission"
+    ],
+    "symptoms_de": [
+      "variatorriemen rutscht", "leistungsverlust am berg", "pfeifendes geräusch"
+    ],
+    "keywords": ["dirzas", "diržas", "belt", "courroie", "riemen", "cvt", "variator", "variatorius", "buksuoja", "buksereja", "slysta"],
+    "possible_cause_lt": "Variatoriaus diržas išsidėvėjęs (vidutiniškai keičiamas kas 15 000–25 000 km). Dažnai kartu užsiteršia variklio ir variatoriaus skriemulių darbiniai paviršiai aliejumi ar guma.",
+    "solution_lt": "1) Vizualiai apžiūrėti diržą (įtrūkimai, blizgesys, dantų nudilimas).\n2) Pamatuoti diržo plotį – jei <17 mm (Aixam) arba <20 mm (Ligier) – keisti.\n3) Nuvalyti abu skriemulius nuo tepalų ir guminių dulkių.\n4) Patikrinti centrinę spyruoklę ir lipdes (clutch weights) – jei išsidėvėjusios, keisti kartu.\n5) Pakeisti diržą originaliu (Aixam OEM, Ligier OEM) arba kokybišku pakaitalu (CFMoto, Athena).",
+    "severity": "warning",
+    "labor_hours": 1.5
+  },
+  {
+    "id": "MC-002",
+    "category": "Engine",
+    "title": "Kubota dyzelis sunkiai užsiveda šaltai",
+    "applies_to": {
+      "makes": ["Aixam", "Ligier", "Microcar"],
+      "engines": ["Kubota"],
+      "year_from": 2000,
+      "year_to": 2026
+    },
+    "symptoms_lt": [
+      "neužsikuria šaltai", "nesikuria saltas", "sunkiai užsikuria ryte", "ilgai sukasi starteris",
+      "dūmija juodais dūmais užsikūrus", "užsikuria ir užgęsta", "neuzsiveda kai saltis"
+    ],
+    "symptoms_en": [
+      "hard cold start kubota", "won't start when cold", "long cranking", "black smoke after cold start",
+      "dies after starting", "no start cold morning"
+    ],
+    "symptoms_fr": [
+      "démarrage difficile à froid", "ne démarre pas à froid", "fumée noire au démarrage"
+    ],
+    "symptoms_de": [
+      "kaltstartprobleme", "startet schlecht bei kälte", "schwarzer rauch beim start"
+    ],
+    "keywords": ["šaltai", "saltas", "saltis", "nesikuria", "neuzsiveda", "kubota", "kaitinimo", "žvakės", "glow plug", "starteris"],
+    "possible_cause_lt": "Sugedusios kaitinimo žvakės (Kubota Z482, D722, D902 varikliuose) arba silpnas akumuliatorius. Reta priežastis – užsikimšę kuro purkštukai dėl prastos žiemos eksploatacijos.",
+    "solution_lt": "1) Patikrinti kaitinimo žvakių pasipriešinimą multimetru (turi būti 0.5–1.5 Ω šaltai). Sugedusi – >5 Ω arba nutrūkusi.\n2) Patikrinti akumuliatoriaus įtampą (<12.4 V – kraukite arba keiskite).\n3) Patikrinti kaitinimo relę (po prietaisų skydeliu).\n4) Jei viskas tvarkoje – patikrinti kuro slėgį (low pressure pump) ir purkštukų būklę.\n5) Žiemai naudoti dyzeliną su žiemos priedais arba 5% biodyzelo maks.",
+    "severity": "info",
+    "labor_hours": 0.7
+  },
+  {
+    "id": "MC-003",
+    "category": "Electrical",
+    "title": "Lombardini DCi elektroninio valdymo blokas (ECU) trikdys",
+    "applies_to": {
+      "makes": ["Ligier", "Microcar", "Chatenet"],
+      "engines": ["Lombardini", "DCi", "Progress"],
+      "year_from": 2008,
+      "year_to": 2020
+    },
+    "symptoms_lt": [
+      "neužsiveda be priežasties", "kartais užsiveda, kartais ne", "užgęsta važiuojant",
+      "užsidega Check Engine lemputė", "kompiuteris mato klaidą bet rytą dingsta",
+      "elektrinis gedimas", "kibirkštinis trikdys"
+    ],
+    "symptoms_en": [
+      "lombardini dci wont start intermittent", "engine cuts out while driving", "intermittent stalling",
+      "ecu glitch", "check engine light flashing", "no spark intermittent"
+    ],
+    "symptoms_fr": [
+      "lombardini ne démarre pas par intermittence", "calage moteur en roulant", "voyant moteur clignote"
+    ],
+    "symptoms_de": [
+      "lombardini startet manchmal nicht", "motor geht während der fahrt aus", "motorkontrollleuchte blinkt"
+    ],
+    "keywords": ["lombardini", "dci", "ecu", "valdymo blokas", "užgesta", "uzgesta", "užsiveda", "elektronika", "check engine"],
+    "possible_cause_lt": "ECU jungčių (konektorių) oksidacija dėl drėgmės skverbimosi. Ypač paplitę Microcar M.GO ir Ligier IXO modeliuose. Antra dažniausia priežastis – sugedęs alkūninio veleno padėties daviklis (CKP).",
+    "solution_lt": "1) Atjungti akumuliatorių 10 min, kad ECU pasibaigtų atmintis.\n2) Apžiūrėti ECU konektorius (po keleivio sėdyne arba variklio skyriuje) – ar nėra oksidacijos, žalsvų nuosėdų.\n3) Nuvalyti kontaktus elektroniniu valikliu (WD-40 Specialist Contact Cleaner) ir įdėti dielektrinį tepalą.\n4) Patikrinti CKP daviklį – pasipriešinimas turi būti 200–400 Ω.\n5) Jei klaida išlieka – nuskaityti su Lombardini PCS arba universaliu OBD su Lombardini protokolu.",
+    "severity": "warning",
+    "labor_hours": 1.8
+  },
+  {
+    "id": "MC-004",
+    "category": "Electrical",
+    "title": "Chatenet generatoriaus (alternator) gedimas",
+    "applies_to": {
+      "makes": ["Chatenet"],
+      "engines": ["Lombardini", "Yanmar", "DCi"],
+      "year_from": 2005,
+      "year_to": 2022
+    },
+    "symptoms_lt": [
+      "akumuliatorius išsikrauna", "blanksta žibintai važiuojant", "iškrauna baterija per naktį",
+      "užsidega akumuliatoriaus lemputė", "negaliu užvesti ryte", "elektrika silpnėja"
+    ],
+    "symptoms_en": [
+      "battery drains chatenet", "headlights dim while driving", "alternator warning light",
+      "battery dead overnight", "no charge from alternator"
+    ],
+    "symptoms_fr": [
+      "batterie se décharge chatenet", "alternateur ne charge pas", "voyant batterie allumé"
+    ],
+    "symptoms_de": [
+      "batterie entlädt chatenet", "lichtmaschine lädt nicht", "batterieleuchte an"
+    ],
+    "keywords": ["chatenet", "generatorius", "alternator", "akumuliatorius", "baterija", "blanksta", "isikrauna", "issikrauna", "lemputė"],
+    "possible_cause_lt": "Sugedusios generatoriaus anglinės šepetėlės (90% atvejų Chatenet CH26/CH30 modeliuose po 8 metų eksploatacijos). Antra dažniausia – diržo tempimo problema arba relės blokas.",
+    "solution_lt": "1) Pamatuoti akumuliatoriaus įtampą varikliui neveikiant (norma >12.4 V) ir veikiant (turi būti 13.8–14.4 V).\n2) Jei veikiant <13 V – generatorius nekrauna.\n3) Patikrinti generatoriaus diržo įtempimą ir būklę.\n4) Nuimti generatorių, patikrinti anglines šepetėles (jei <5 mm – keisti).\n5) Patikrinti reguliatorių. Dažnai pigiau keisti generatorių pilnai (Mitsubishi-style 50A, ~140 EUR).\n6) Patikrinti masės kabelį – Chatenet tai dažna sandūros problema.",
+    "severity": "warning",
+    "labor_hours": 2.0
+  },
+  {
+    "id": "MC-005",
+    "category": "Chassis",
+    "title": "Priekinio stabilizatoriaus barškėjimas / pakabos triukšmai",
+    "applies_to": {
+      "makes": ["Aixam", "Ligier", "Microcar", "Chatenet", "JDM"],
+      "engines": ["Kubota", "Lombardini", "Yanmar", "Electric"],
+      "year_from": 2000,
+      "year_to": 2026
+    },
+    "symptoms_lt": [
+      "barska važiuojant", "girdėti barškėjimas", "kažkas barška priekyje", "barska per duobutes",
+      "kalena priekyje", "pakaba pradėjo bildėti", "ant nelygumų barska"
+    ],
+    "symptoms_en": [
+      "front end rattle", "knocking noise over bumps", "clunking front suspension",
+      "sway bar rattle", "noise when driving over potholes"
+    ],
+    "symptoms_fr": [
+      "bruit avant en roulant", "claquement suspension", "barre stabilisatrice qui claque"
+    ],
+    "symptoms_de": [
+      "klappern vorne", "polternde geräusche fahrwerk", "stabilisator klappert"
+    ],
+    "keywords": ["barska", "barskejimas", "barškėjimas", "kalena", "bilde", "duobute", "pakaba", "stabilizatorius", "rattle", "knocking", "clunk"],
+    "possible_cause_lt": "Stabilizatoriaus strypelių (link stabilizers) galų guolių dėvėjimasis. Microcar pasaulyje keičiama vidutiniškai kas 30 000 km. Antra dažna priežastis – susidėvėję viršutinių amortizatorių guoliai (top mounts).",
+    "solution_lt": "1) Vizuali pakabos apžiūra ant pakeltos mašinos – patikrinti, ar strypelių antgaliai nelaisvai juda.\n2) Pajudinti rato apačią aukštyn-žemyn – klausytis, ar nebarška.\n3) Pakeisti stabilizatoriaus strypelius poromis (apie 30–50 EUR/pora aftermarket).\n4) Patikrinti šarnyrų, sferinių guolių (track rod ends) būklę.\n5) Jei barškėjimas iš centro – patikrinti vairo kolonėlės kardanus.",
+    "severity": "info",
+    "labor_hours": 0.8
+  },
+  {
+    "id": "MC-006",
+    "category": "Engine",
+    "title": "Yanmar variklio perkaitimas (overheating)",
+    "applies_to": {
+      "makes": ["Aixam", "Ligier"],
+      "engines": ["Yanmar"],
+      "year_from": 2010,
+      "year_to": 2026
+    },
+    "symptoms_lt": [
+      "variklis perkaista", "temperatūra raudonoje zonoje", "kuria garu", "vaizdas kaita iš kapuko",
+      "ventiliatorius nesisuka", "perkaista važiuojant lėtai", "užverda aušinimas"
+    ],
+    "symptoms_en": [
+      "yanmar engine overheating", "temperature gauge red", "coolant boiling", "radiator fan not working",
+      "overheats at low speed"
+    ],
+    "symptoms_fr": [
+      "yanmar surchauffe", "température élevée", "ventilateur ne tourne pas"
+    ],
+    "symptoms_de": [
+      "yanmar überhitzt", "temperatur zu hoch", "kühlerlüfter dreht nicht"
+    ],
+    "keywords": ["perkaista", "perkaitimas", "temperatura", "yanmar", "ventiliatorius", "aušinimas", "garas", "kuria garu", "overheat"],
+    "possible_cause_lt": "Aušinimo skysčio ventiliatoriaus relės gedimas (dažniausia Yanmar L70/L100 varikliuose). Antra priežastis – užterštas radiatorius arba neveikiantis termostatas.",
+    "solution_lt": "1) Patikrinti aušinimo skysčio lygį (vėsų varikliui) – jei žemas, ieškoti nuotėkio.\n2) Patikrinti ventiliatoriaus veikimą – paleisti variklį, leisti pakaisti iki 90°C – ventiliatorius turi įsijungti.\n3) Jei neįsijungia – patikrinti relę (atjungti, sujungti tiesiogiai). Jei suka – kalta relė (5–15 EUR).\n4) Patikrinti temperatūros daviklį (ECT).\n5) Praplauti radiatorių iš išorės (lapai, vabzdžiai labai dažnai užsikemša Microcar mašinose).\n6) Patikrinti termostatą – jei užsikimšęs, keisti.",
+    "severity": "critical",
+    "labor_hours": 1.5
+  },
+  {
+    "id": "MC-007",
+    "category": "Engine",
+    "title": "Elektrinio Aixam e-Coupe / Mega e-City – akumuliatoriaus krovimo klaida",
+    "applies_to": {
+      "makes": ["Aixam", "Mega", "Ligier"],
+      "engines": ["Electric"],
+      "year_from": 2018,
+      "year_to": 2026
+    },
+    "symptoms_lt": [
+      "nesikrauna baterija", "nepasiekia pilno krovimo", "krovimo klaida ekrane",
+      "rodo mažesnį nuotolį", "vis lėčiau įsikrauna", "nesijungia įkroviklis", "krovėjas nepalaiko ryšio"
+    ],
+    "symptoms_en": [
+      "electric microcar not charging", "charge error", "reduced range", "battery degradation",
+      "charger handshake fail"
+    ],
+    "symptoms_fr": [
+      "ne charge pas", "erreur de charge", "autonomie réduite"
+    ],
+    "symptoms_de": [
+      "lädt nicht", "ladefehler", "reichweite reduziert"
+    ],
+    "keywords": ["electric", "elektrinis", "elektromobilis", "baterija", "krovimas", "krauna", "nuotolis", "range", "charge", "bms"],
+    "possible_cause_lt": "BMS (Battery Management System) jutiklių klaida arba EVSE (charging port) jungties oksidacija. Aixam e-Coupe (2019+) dažnai užfiksuoja klaidą po žiemos eksploatacijos dėl drėgmės įkroviklio jungtyje.",
+    "solution_lt": "1) Patikrinti įkroviklio jungties būklę – ar nėra oksidacijos, žalsvų nuosėdų. Nuvalyti elektronikos valikliu.\n2) Nuskaityti BMS klaidas su Aixam diagnostikos įrankiu (PCS Light arba MGM).\n3) Patikrinti pavienių celių įtampas – jei skirtumas >0.3 V, BMS reikalauja balansavimo (per dilerį).\n4) Patikrinti pagrindinio kontaktoriaus relę (HV kontaktorių) – įprasta gedimo vieta po 5+ metų.\n5) Patikrinti DC-DC keitiklį (12V borto įtampai) – jei 12V akumuliatorius neįsikrauna, BMS atjungia HV.\n6) Programinės įrangos atnaujinimas dileryje (jei dar nedaryta po 2023 m.).",
+    "severity": "warning",
+    "labor_hours": 2.5
+  }
+]
