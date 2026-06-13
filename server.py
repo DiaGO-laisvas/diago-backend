@@ -1390,6 +1390,7 @@ async def check_error(req: ErrorCheckRequest, request: Request, authorization: s
     # patikrinam vidinę 57 įrašų žinių bazę su Lietuvos remonto kainomis. Jei rasti
     # įrašai su pasitikėjimu >= medium (>=0.40) – įdedame juos kaip „PATIKRINTĄ ŠALTINĮ”
     # į AI prompt'ą. AI privalo juos naudoti kaip pirminį tiesos šaltinį.
+    microcar_kb_hits = []  # default – tuščia, jei KB neveikė ar nieko nerado
     if eq == "microcar" and (fault_desc or codes):
         try:
             from diago_backend.microcar.microcar_diag import search_microcar_issues
@@ -1441,9 +1442,12 @@ async def check_error(req: ErrorCheckRequest, request: Request, authorization: s
                     "5) Galite pridėti savo bendras pastabas, BET KB info yra autoritetingas šaltinis."
                 )
                 user_prompt += kb_block
+                # Atskirai grąžinsim atsakyme – kad UI parodytų „🛵 DiaGO KB rado X atitikimų"
+                microcar_kb_hits = kb_useful
             else:
                 logger.info("🛵 microcar KB: nieko nerasta (geriausias score < 0.40, query='%s')",
                             kb_query_text[:80])
+                microcar_kb_hits = []
         except Exception as kb_exc:
             logger.warning("Microcar KB lookup failed (non-blocking): %s", kb_exc)
 
@@ -1518,6 +1522,19 @@ async def check_error(req: ErrorCheckRequest, request: Request, authorization: s
 
         # Ištraukiam ir pašalinam DiaGO_META bloką
         analysis, known_codes, unknown_codes_meta, severity_map, needs_clarification, clarification_question = _parse_diago_meta(analysis or "")
+
+        # 🛵 MICROCAR KB banner – kad vartotojas (ir admin) aiškiai matytų,
+        # kada vidinė žinių bazė tikrai veikė ir kokius atitikimus rado.
+        if microcar_kb_hits:
+            ids = ", ".join(h["id"] for h in microcar_kb_hits[:3])
+            top_score = microcar_kb_hits[0]["score"]
+            kb_banner = (
+                f"> 🛵 **DiaGO mikroautomobilių KB:** rasti {len(microcar_kb_hits)} "
+                f"atitikim{'as' if len(microcar_kb_hits)==1 else 'ai'} "
+                f"({ids}, top pasitikėjimas: {top_score:.0%}). "
+                f"Žemiau pateikti duomenys remiasi šia patikrinta baze + AI analize.\n\n"
+            )
+            analysis = kb_banner + (analysis or "")
 
         # FAIL-SAFE: Jei AI grąžino TIK DiaGO_META (analizė tuščia po stripping'o), pakartojam
         # užklausą su aiškia instrukcija pateikti PILNĄ analizę. Tai apsauga nuo Gemini glitch'ų,
