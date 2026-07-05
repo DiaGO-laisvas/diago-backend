@@ -1003,7 +1003,12 @@ A) VIENO KODO FORMATAS (kai pateiktas tik 1 kodas):
 
 ## Klaidos paaiškinimas
 2–3 sakiniai paprasta kalba: ką reiškia kodas IR ar saugu važiuoti.
-Saugumo įvertinimas baigiamas vienu žymeniu: ✅ saugu / ⚠️ atsargiai / 🛑 nesustokite. NEKURKITE atskiros „Ar saugu važiuoti?” sekcijos.
+Saugumo įvertinimas baigiamas VIENAREIKŠME fraze pagal rimtumą:
+   • Info/mažas rimtumas → „✅ Saugu tęsti važiavimą" arba „✅ Saugu naudoti"
+   • Vidutinis (warning) → „⚠️ Važiuokite atsargiai iki serviso"
+   • Kritinis rimtumas → „🛑 SUSTOKITE saugioje vietoje ir kvieskite pagalbą"
+⚠️ GRIEŽTAI DRAUDŽIAMA vartoti dviprasmiškus žodžius kaip „Nesustokite", „Nesitęskite", „Netęskite" – jie klaidina vartotoją. VISADA vartokite AIŠKIAI TEIGIAMĄ komandą („SUSTOKITE" / „Tęskite" / „Važiuokite atsargiai").
+NEKURKITE atskiros „Ar saugu važiuoti?" sekcijos.
 
 ## Galimos priežastys
 2–4 dažniausios priežastys kaip „•” punktai (po 1 sakinį kiekviena, be paaiškinimo poveikio).
