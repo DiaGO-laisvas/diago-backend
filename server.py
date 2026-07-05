@@ -1398,7 +1398,13 @@ async def check_error(req: ErrorCheckRequest, request: Request, authorization: s
     microcar_kb_hits = []  # default – tuščia, jei KB neveikė ar nieko nerado
     if eq == "microcar" and (fault_desc or codes):
         try:
-            from diago_backend.microcar.microcar_diag import search_microcar_issues
+            # Bandom kelis importo kelius – priklauso nuo deployment struktūros:
+            # 1) diago_backend.microcar.microcar_diag (jei repo turi diago_backend/ aplankas)
+            # 2) microcar.microcar_diag (jei microcar/ yra tame pačiame lygyje kaip server.py)
+            try:
+                from diago_backend.microcar.microcar_diag import search_microcar_issues
+            except ImportError:
+                from microcar.microcar_diag import search_microcar_issues
             # veh = "Aixam City S8 2017" – išskaidom į make/year
             veh_parts = (veh or "").split()
             kb_make = veh_parts[0] if veh_parts else ""
