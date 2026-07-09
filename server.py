@@ -718,6 +718,261 @@ async def chat_with_diago(req: ChatRequest):
         raise HTTPException(status_code=502, detail=_friendly_llm_error(e, context="Atsakymas nepavyko"))
 
 
+# ============================================================
+# MICROCAR CHAT ASSISTANT
+# ============================================================
+
+MICROCAR_SYSTEM_PROMPT = """Tu esi DiaGO ekspertas mikroautomobiliams (L6e/L7e kategorija: Aixam, Ligier, Microcar, Chatenet, JDM, Bellier, Casalini, Mega, Grecav ir kt.).
+
+Turi 20 metų patirties šioje niche'je Lietuvoje. Kalbi paprastai, draugiškai, be nereikalingų techninių terminų (bet paaiškini juos, kai reikia).
+
+TAVO TIKSLAS:
+1) Padėti savininkams suprasti savo mikroautomobilį (veikimas, priežiūra).
+2) Padėti pirkimo klausimais (į ką atkreipti dėmesį, būklės vertinimas iš nuotraukų).
+3) Padėti diagnozuoti gedimus pagal simptomus arba nuotraukas.
+4) Nurodyti kur gauti detalių (LT ir EU tiekėjai).
+5) Pasakyti orientacinę remonto kainą Lietuvoje.
+6) Nurodyti servisų kryptis (LT).
+
+STILIUS:
+- Lakoniškas, konkretus. NE ilgi paragrafai.
+- Naudok markdown: `##` antraštėms, `•` sąrašams, `**paryškinimą**` svarbioms vietoms.
+- Jei atsakymas <5 sakinių – pateik be antraščių.
+- Jei ilgesnis – suskaidyk į logiškas dalis.
+- Kainos VISADA su € ženklu ir diapazonu (pvz., „80–160 €").
+- NIEKADA nekurk įžangų kaip „DiaGO sistema pateikia...", „Atsižvelgiant į tai...".
+
+KO NEDARYK:
+❌ Neišradinėk techninių detalių, kurių nesi tikras.
+❌ Nesakyk, kad kažką „galima patikrinti servise" – nurodyk KĄ tiksliai patikrinti.
+❌ Neduok bendrų patarimų tipo „laikykitės saugos taisyklių".
+
+JEI PATEIKTA NUOTRAUKA:
+- Aprašyk KĄ MATAI (pvz., „nuotraukoje Aixam City su korozija priekiniame skarde...").
+- Įvertink būklę pagal 10 balų skalę (jei įmanoma).
+- Nurodyk 2-3 SVARBIAUSIAS problemas.
+- Prognozuok remonto kainą, jei matomas žalos požymis.
+- Jei nuotrauka NEAIŠKI arba ne mikroautomobilio – paprašyk pakartoti.
+
+DETALĖS IR SERVISAI:
+- Kai vartotojas klausia „kur gauti detalių" – nurodyk konkrečius tiekėjus (Microcar-parts.lt, Pieces-voiturette.fr, Aixam-shop.com).
+- Kai klausia „kas gali suremontuoti" – nurodyk regionų kryptis (Vilnius, Kaunas, Klaipėda) ir patarimą "skambink prieš vykdamas".
+
+VISADA atsakyk LIETUVIŠKAI.
+"""
+
+
+class MicrocarChatRequest(BaseModel):
+    message: str
+    session_id: str | None = None
+    image_base64: str | None = None
+    context: str | None = None  # "buying", "repair", "parts", "service", "general"
+
+
+class MicrocarChatResponse(BaseModel):
+    reply: str
+    session_id: str
+    kb_hits: list[dict] = []
+
+
+@api_router.post("/microcar/chat", response_model=MicrocarChatResponse)
+async def microcar_chat(req: MicrocarChatRequest):
+    """Mikroautomobilių AI asistento chat endpoint'as.
+
+    Palaiko:
+    - Laisvą tekstinę užklausą (LT).
+    - Nuotraukos analizę (base64).
+    - Kontekstinius patarimus (buying/repair/parts).
+    - Vidinės KB integraciją (jei simptomai atitinka žinomus gedimus).
+    """
+    user_text = (req.message or "").strip()
+    has_image = bool(req.image_base64)
+    if not user_text and not has_image:
+        raise HTTPException(status_code=400, detail="Žinutė arba nuotrauka privaloma.")
+    if len(user_text) > 3000:
+        raise HTTPException(status_code=400, detail="Žinutė per ilga (max 3000 simbolių).")
+
+    api_key, key_src = _get_llm_key()
+    if not api_key:
+        raise HTTPException(status_code=500, detail="LLM raktas nesukonfigūruotas.")
+
+    sid = (req.session_id or f"microcar-{uuid.uuid4().hex[:12]}").strip()
+    ctx = (req.context or "general").strip().lower()
+
+    # Vidinė KB paieška, jei atsakymas gali būti KB
+    kb_hits: list[dict] = []
+    if user_text and ctx in ("repair", "general"):
+        try:
+            try:
+                from diago_backend.microcar.microcar_diag import search_microcar_issues
+            except ImportError:
+                from microcar.microcar_diag import search_microcar_issues
+            kb_results = search_microcar_issues({}, user_text, top_k=3)
+            kb_hits = [r for r in kb_results if r.get("score", 0) >= 0.35]
+        except Exception as e:
+            logger.warning("Microcar KB lookup non-blocking fail: %s", e)
+
+    # Sudarome vartotojo užklausos tekstą su konteksto priešpasakiu
+    ctx_prefix = ""
+    if ctx == "buying":
+        ctx_prefix = "[KONTEKSTAS: klientas ruošiasi pirkti mikroautomobilį] "
+    elif ctx == "repair":
+        ctx_prefix = "[KONTEKSTAS: klientas nori remontuoti savo mikroautomobilį] "
+    elif ctx == "parts":
+        ctx_prefix = "[KONTEKSTAS: klientas ieško detalių savo mikroautomobiliui] "
+    elif ctx == "service":
+        ctx_prefix = "[KONTEKSTAS: klientas ieško serviso mikroautomobiliui remontuoti] "
+
+    kb_context = ""
+    if kb_hits:
+        kb_context = "\n\n[VIDINĖ KB RADO ATITIKIMŲ – naudok kaip patikrintus duomenis]:\n"
+        for h in kb_hits[:2]:
+            kb_context += f"• {h['title']} (kaina: {h.get('possible_cause','')[:120]}...)\n"
+
+    final_message = ctx_prefix + user_text + kb_context
+
+    try:
+        chat = LlmChat(
+            api_key=api_key,
+            session_id=sid,
+            system_message=MICROCAR_SYSTEM_PROMPT,
+        ).with_model("gemini", "gemini-2.5-flash")
+
+        # Nuotrauka (jei yra)
+        msg: UserMessage
+        if has_image:
+            image_b64_clean = req.image_base64.split(",", 1)[-1] if "," in req.image_base64 else req.image_base64
+            msg = UserMessage(
+                text=final_message or "Įvertink šią mikroautomobilio nuotrauką: aprašyk būklę, matomus gedimus, orientacinę kainą.",
+                file_contents=[ImageContent(image_base64=image_b64_clean)],
+            )
+        else:
+            msg = UserMessage(text=final_message)
+
+        reply = await _send_with_retry(chat, msg)
+
+        # Log į DB (admin analitikai)
+        db = _get_db()
+        if db is not None:
+            try:
+                await db.microcar_chats.insert_one({
+                    "session_id": sid,
+                    "context": ctx,
+                    "user_message": user_text[:1500],
+                    "had_image": has_image,
+                    "assistant_reply": (reply or "")[:5000],
+                    "kb_hits_count": len(kb_hits),
+                    "kb_hit_ids": [h["id"] for h in kb_hits[:5]],
+                    "msg_len": len(user_text),
+                    "reply_len": len(reply or ""),
+                    "created_at": datetime.now(timezone.utc),
+                })
+            except Exception:
+                pass
+
+        return MicrocarChatResponse(reply=reply, session_id=sid, kb_hits=kb_hits[:3])
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.exception("Microcar chat failure")
+        raise HTTPException(status_code=502, detail=_friendly_llm_error(e, context="Atsakymas nepavyko"))
+
+
+@api_router.get("/microcar/data")
+async def microcar_data():
+    """Grąžina visą mikroautomobilių puslapio duomenis: modelius, tiekėjus, servisus.
+
+    Naudojama frontend'e vieno request'o metu.
+    """
+    import json as _json
+    from pathlib import Path as _Path
+    base = _Path(__file__).parent / "microcar"
+    out = {"models": {}, "dealers": {}, "services": {}}
+    for key, fname in [("models", "microcar_models.json"),
+                       ("dealers", "microcar_dealers.json"),
+                       ("services", "microcar_services.json")]:
+        p = base / fname
+        if p.exists():
+            try:
+                out[key] = _json.loads(p.read_text(encoding="utf-8"))
+            except Exception as e:
+                logger.warning("Failed to load %s: %s", fname, e)
+    return out
+
+
+class MicrocarBusinessInquiry(BaseModel):
+    company_name: str
+    contact_person: str | None = None
+    email: str
+    phone: str | None = None
+    service_type: str  # "repair", "parts", "tuning", "diagnostics", "kevalo", "other"
+    city: str | None = None
+    website: str | None = None
+    description: str
+    consent: bool = False
+
+
+@api_router.post("/microcar/business-inquiry")
+async def microcar_business_inquiry(req: MicrocarBusinessInquiry):
+    """Verslo klientai (servisai, detalių prekybos, tuning atelier) gali užsiregistruoti
+    reklamai mikroautomobilių puslapyje. Užklausa saugoma DB, admin peržiūri ir susisiekia.
+    """
+    if not req.company_name.strip() or not req.email.strip() or not req.description.strip():
+        raise HTTPException(status_code=400, detail="Įmonės pavadinimas, el. paštas ir aprašymas privalomi.")
+    if not req.consent:
+        raise HTTPException(status_code=400, detail="Turite patvirtinti sutikimą apdoroti duomenis.")
+    if "@" not in req.email or "." not in req.email:
+        raise HTTPException(status_code=400, detail="Neteisingas el. pašto formatas.")
+    if len(req.description) > 2000:
+        raise HTTPException(status_code=400, detail="Aprašymas per ilgas (max 2000 simb.).")
+
+    db = _get_db()
+    if db is None:
+        raise HTTPException(status_code=500, detail="DB nesukonfigūruota.")
+
+    doc = {
+        "inquiry_id": str(uuid.uuid4()),
+        "company_name": req.company_name.strip()[:200],
+        "contact_person": (req.contact_person or "").strip()[:100] or None,
+        "email": req.email.strip().lower()[:150],
+        "phone": (req.phone or "").strip()[:30] or None,
+        "service_type": req.service_type.strip().lower()[:30],
+        "city": (req.city or "").strip()[:60] or None,
+        "website": (req.website or "").strip()[:200] or None,
+        "description": req.description.strip()[:2000],
+        "status": "new",  # new / contacted / active / rejected
+        "created_at": datetime.now(timezone.utc),
+    }
+    try:
+        await db.microcar_business.insert_one(doc)
+        logger.info("💼 Nauja mikroautomobilio verslo užklausa: %s (%s)", doc["company_name"], doc["service_type"])
+        return {"ok": True, "message": "Ačiū! Susisieksime per 2 darbo dienas."}
+    except Exception as e:
+        logger.exception("Business inquiry save failed")
+        raise HTTPException(status_code=500, detail="Serverio klaida. Bandykite vėliau.")
+
+
+@api_router.get("/microcar/partners")
+async def microcar_partners():
+    """Grąžina PATVIRTINTUS (status=active) verslo partnerius rodymui microcar puslapyje.
+    Šiuo metu tuščias – kai admin patvirtins užklausas, jie čia atsiras.
+    """
+    db = _get_db()
+    if db is None:
+        return {"partners": []}
+    try:
+        cur = db.microcar_business.find(
+            {"status": "active"},
+            {"_id": 0, "company_name": 1, "service_type": 1, "city": 1, "website": 1, "description": 1, "phone": 1}
+        ).sort("created_at", -1).limit(20)
+        partners = [doc async for doc in cur]
+        return {"partners": partners}
+    except Exception as e:
+        logger.warning("microcar_partners failed: %s", e)
+        return {"partners": []}
+
+
+
 # ============================
 # Error code analyzer
 # ============================

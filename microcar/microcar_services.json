@@ -1,0 +1,60 @@
+{
+  "note": "LT servisai remontuojantys mikroautomobilius. Rekomenduojame prieš vykstant paskambinti ir patvirtinti, kad servisas turi patirtimi su konkrečia marke.",
+  "services": [
+    {
+      "id": "servisas-vilnius-1",
+      "name": "Populiarūs mikroautomobilių servisai Vilniuje",
+      "city": "Vilnius",
+      "speciality": "Aixam, Ligier, Microcar bendra diagnostika",
+      "search_hint": "Google paieška: „mikroautomobilių servisas Vilnius Aixam Ligier”",
+      "note": "Rekomenduojame ieškoti servisų, kurie turi patirties su prancūziškais mikroautomobiliais. Paklauskite ar turi Kubota / Yanmar dyzelių diagnostikos įrangą."
+    },
+    {
+      "id": "servisas-kaunas-1",
+      "name": "Populiarūs mikroautomobilių servisai Kaune",
+      "city": "Kaunas",
+      "speciality": "CVT, dyzelinis variklis, pakaba",
+      "search_hint": "Google paieška: „Aixam servisas Kaunas”, „Ligier remontas Kaunas”",
+      "note": "Kai kurie ATV / motoservisai turi patirtimi su CVT sistemomis, kurios yra panašios."
+    },
+    {
+      "id": "servisas-klaipeda-1",
+      "name": "Klaipėdos regiono servisai",
+      "city": "Klaipėda",
+      "speciality": "Bendras remontas, kėbulo darbai",
+      "search_hint": "Google paieška: „mikroautomobilio remontas Klaipėda”",
+      "note": "Uostamiestyje yra keli servisai, kurie remontuoja ir daugiau egzotinių mašinų."
+    },
+    {
+      "id": "servisas-panevezys",
+      "name": "Panevėžys / Šiauliai",
+      "city": "Panevėžys, Šiauliai",
+      "speciality": "Provincijos servisai – dažnai kaimo tipo, pigesni įkainiai",
+      "search_hint": "Google paieška: „mikroauto servisas Panevėžys”, „Aixam remontas Šiauliai”",
+      "note": "Regionuose servisai dažnai turi patirtimi su žemės ūkio Kubota varikliais – analogiški mikroautomobiliams."
+    },
+    {
+      "id": "kevalo-servisas",
+      "name": "Kėbulo / avarinio remonto servisai",
+      "city": "Visa LT",
+      "speciality": "Rėmo geometrija, kėbulo lyginimas",
+      "search_hint": "Google paieška: „kėbulo remontas mikroautomobiliai”, „rėmo lyginimas Aixam Ligier”",
+      "note": "Po avarijos svarbu, kad servisas turėtų PILNĄ rėmo lyginimo stendą ir supranta mikroautomobilio konstrukcines ypatybes."
+    },
+    {
+      "id": "dileris-lt",
+      "name": "Oficialūs importuotojai LT",
+      "city": "–",
+      "speciality": "Naujų mikroautomobilių pardavimas + garantinis servisas",
+      "search_hint": "Google paieška: „Aixam Lietuva importuotojas”, „Ligier atstovas Vilnius”",
+      "note": "Kartais tenka kreiptis dėl garantinių atvejų arba specifinių OEM detalių."
+    }
+  ],
+  "tips": [
+    "Prieš vykstant į servisą, skambinkite ir patvirtinkite ar turi patirties su jūsų marke.",
+    "Paklauskite, ar turi Kubota / Yanmar / Lombardini variklių diagnostikos įrangą.",
+    "Prašykite pateikti pradinę sąmatą prieš pradedant darbus.",
+    "Pagrindiniai gedimai (CVT diržas, kaitinimo žvakės, generatorius) yra gana paprasti — daugelis servisų juos gali padaryti.",
+    "Kėbulo/rėmo darbams ieškokite specializuotų kėbulo remontų."
+  ]
+}

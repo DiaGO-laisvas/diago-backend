@@ -1,0 +1,65 @@
+{
+  "note": "LT/EU detalių tiekėjai mikroautomobiliams. Sąrašas orientacinis – rekomenduojame patikrinti kainas ir turimas prekes prieš perkant.",
+  "dealers": [
+    {
+      "id": "microcar-parts-lt",
+      "name": "Microcar-parts.lt",
+      "type": "Nišinis Lietuvos tiekėjas",
+      "country": "🇱🇹 Lietuva",
+      "speciality": "Aixam, Ligier, Microcar detalės",
+      "website": "https://microcar-parts.lt/",
+      "note": "Vienas iš nedaugelio LT tiekėjų su Aixam / Ligier atsargomis. Gali pristatyti į servisus.",
+      "rating_stars": 4
+    },
+    {
+      "id": "aixam-shop-fr",
+      "name": "Aixam-shop.com",
+      "type": "OEM tiekėjas",
+      "country": "🇫🇷 Prancūzija",
+      "speciality": "Aixam OEM originalūs",
+      "website": "https://www.aixam-shop.com/",
+      "note": "Oficialus Aixam dalių katalogas. Kainos aukštos, bet 100% originalios detalės.",
+      "rating_stars": 5
+    },
+    {
+      "id": "pieces-voiturette-fr",
+      "name": "Pieces-voiturette.fr",
+      "type": "Universalus",
+      "country": "🇫🇷 Prancūzija",
+      "speciality": "Aixam, Ligier, Microcar, Chatenet, JDM, Bellier",
+      "website": "https://www.pieces-voiturette.fr/",
+      "note": "Didžiausias Europoje mikroautomobilių dalių tiekėjas. Kainos gerai konkurencingos.",
+      "rating_stars": 5
+    },
+    {
+      "id": "microcar-shop-be",
+      "name": "Microcar-shop.eu",
+      "type": "Universalus",
+      "country": "🇧🇪 Belgija",
+      "speciality": "Visos LSM markės",
+      "website": "https://microcar-shop.eu/",
+      "note": "Greitas pristatymas į LT (~4-6 d.). Anglų + prancūzų k.",
+      "rating_stars": 4
+    },
+    {
+      "id": "ebay-motors",
+      "name": "eBay Motors (Prancūzija/Italija)",
+      "type": "C2C rinka",
+      "country": "🌍 Europos",
+      "speciality": "Naudotos detalės iš karo laužų",
+      "website": "https://www.ebay.fr/b/Aixam/6001/bn_6924834",
+      "note": "Pigiausia opcija naudotoms detalėms. Reikia terpėj prancūziškai išmokti pagrindinius terminus.",
+      "rating_stars": 3
+    },
+    {
+      "id": "autodoc-lt",
+      "name": "AutoDoc.lt",
+      "type": "Universalus autodalių",
+      "country": "🇩🇪/🇱🇹",
+      "speciality": "Generinės detalės: filtrai, žvakės, tepalai, stabdžiai",
+      "website": "https://www.autodoc.lt/",
+      "note": "Turi kai kurių universalių detalių (kaitinimo žvakės Kubota, stabdžių kaladėlės). Aixam/Ligier specifikos mažai.",
+      "rating_stars": 3
+    }
+  ]
+}
