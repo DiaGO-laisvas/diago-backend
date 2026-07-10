@@ -1,0 +1,134 @@
+{
+  "brands": [
+    {
+      "id": "aixam",
+      "name": "Aixam",
+      "country": "🇫🇷 Prancūzija",
+      "founded": 1983,
+      "note": "Populiariausias mikroautomobilių gamintojas Europoje. Kubota dyzeliai, patikimi CVT.",
+      "models": [
+        {"id": "aixam-city", "name": "City", "years": "2013–2026", "engine": "Kubota Z482 (5 kW) / Kubota D902 (6 kW)", "fuel": "Dyzelis", "top_speed_kmh": 45, "range_km": 400, "typical_price_used_eur": "3500–7500", "common_issues": ["CVT diržo dėvėjimasis", "Kaitinimo žvakės žiemai", "Priekinės pakabos guoliai"]},
+        {"id": "aixam-crossover", "name": "Crossover", "years": "2015–2026", "engine": "Kubota D902 (6 kW)", "fuel": "Dyzelis", "top_speed_kmh": 45, "range_km": 400, "typical_price_used_eur": "5500–11000", "common_issues": ["Kondicionavimo sistemos gedimai", "Aliejaus PCV sistema"]},
+        {"id": "aixam-coupe-gti", "name": "Coupé GTI", "years": "2015–2026", "engine": "Kubota D902 (6 kW) tuned", "fuel": "Dyzelis", "top_speed_kmh": 45, "range_km": 380, "typical_price_used_eur": "6500–14000", "common_issues": ["Sportinės pakabos amortizatorių dėvėjimas", "Sankabos svarmenys"]},
+        {"id": "aixam-ecoupe", "name": "e-Coupé", "years": "2020–2026", "engine": "Elektrinis 4 kW (LiFePO4 8.1 kWh)", "fuel": "Elektra", "top_speed_kmh": 45, "range_km": 75, "typical_price_used_eur": "8500–15500", "common_issues": ["BMS celių disbalansas", "DC-DC keitiklis", "Krovimo jungties oksidacija"]}
+      ]
+    },
+    {
+      "id": "ligier",
+      "name": "Ligier",
+      "country": "🇫🇷 Prancūzija",
+      "founded": 1980,
+      "note": "F1 komandos savininko Guy Ligier įkurta. Šiuolaikinis dizainas, DCi ir Progress varikliai.",
+      "models": [
+        {"id": "ligier-js50", "name": "JS50", "years": "2011–2019", "engine": "Lombardini/DCi 505cc (5 kW) / Progress 500 (6 kW)", "fuel": "Dyzelis", "top_speed_kmh": 45, "range_km": 350, "typical_price_used_eur": "3000–7000", "common_issues": ["ECU jungčių oksidacija (M.GO panašiai)", "EGR užsikimšimas", "Generatorius"]},
+        {"id": "ligier-js50l", "name": "JS50 L (Luxe)", "years": "2016–2019", "engine": "Progress DCi 500cc (6 kW)", "fuel": "Dyzelis", "top_speed_kmh": 45, "range_km": 400, "typical_price_used_eur": "5500–10000", "common_issues": ["Salono elektronikos gedimai", "CAN-bus problemos"]},
+        {"id": "ligier-myli", "name": "Myli", "years": "2020–2026", "engine": "Elektrinis (LiFePO4 8 kWh)", "fuel": "Elektra", "top_speed_kmh": 45, "range_km": 75, "typical_price_used_eur": "9500–15000", "common_issues": ["Krovimo jungtis", "Programinės įrangos naujinimų klaidos"]},
+        {"id": "ligier-js60", "name": "JS60", "years": "2019–2026", "engine": "Progress DCi 500cc (6 kW)", "fuel": "Dyzelis", "top_speed_kmh": 45, "range_km": 400, "typical_price_used_eur": "8500–13500", "common_issues": ["DPF užsikimšimas", "Vairo strypų antgaliai"]}
+      ]
+    },
+    {
+      "id": "microcar",
+      "name": "Microcar",
+      "country": "🇫🇷 Prancūzija",
+      "founded": 1984,
+      "note": "Priklauso Ligier grupei. Dvivietis kėbulas, pigesnė alternatyva JS serijai.",
+      "models": [
+        {"id": "microcar-mgo", "name": "M.GO", "years": "2008–2018", "engine": "Lombardini DCi 505cc (5 kW)", "fuel": "Dyzelis", "top_speed_kmh": 45, "range_km": 350, "typical_price_used_eur": "2500–6500", "common_issues": ["ECU jungčių oksidacija (labai dažna)", "Alkūninio veleno daviklis", "EGR"]},
+        {"id": "microcar-mgo-highland", "name": "M.GO Highland", "years": "2015–2018", "engine": "Progress DCi 500cc (6 kW)", "fuel": "Dyzelis", "top_speed_kmh": 45, "range_km": 380, "typical_price_used_eur": "4500–8000", "common_issues": ["Pakelto kėbulo pakaba", "Amortizatoriai"]},
+        {"id": "microcar-mgo6", "name": "M.GO 6", "years": "2019–2026", "engine": "Progress DCi 500cc (6 kW)", "fuel": "Dyzelis", "top_speed_kmh": 45, "range_km": 400, "typical_price_used_eur": "7500–12000", "common_issues": ["Nauji – dar mažai duomenų. Reguliarus TA."]},
+        {"id": "microcar-due", "name": "Due", "years": "2016–2026", "engine": "Progress DCi 500cc (6 kW)", "fuel": "Dyzelis", "top_speed_kmh": 45, "range_km": 380, "typical_price_used_eur": "5000–9500", "common_issues": ["CVT diržas", "Stabdžių diskai plonesni nei standartas"]}
+      ]
+    },
+    {
+      "id": "chatenet",
+      "name": "Chatenet",
+      "country": "🇫🇷 Prancūzija",
+      "founded": 1984,
+      "note": "Pirmoji rinkoje su sportišku dizainu. Yanmar ir Lombardini varikliai.",
+      "models": [
+        {"id": "chatenet-ch26", "name": "CH26", "years": "2003–2015", "engine": "Yanmar / Lombardini (4–6 kW)", "fuel": "Dyzelis", "top_speed_kmh": 45, "range_km": 400, "typical_price_used_eur": "2000–5500", "common_issues": ["Generatoriaus anglinės šepetėlės (labai dažnai po 8 m.)", "Aušinimo relė", "Vairo kolonėlės kardanas"]},
+        {"id": "chatenet-ch30", "name": "CH30", "years": "2012–2020", "engine": "Yanmar 2TDX (6 kW)", "fuel": "Dyzelis", "top_speed_kmh": 45, "range_km": 380, "typical_price_used_eur": "4500–8500", "common_issues": ["Generatorius", "Termostato gedimas", "Sferiniai guoliai"]},
+        {"id": "chatenet-ch40", "name": "CH40 / Sporteevo", "years": "2016–2024", "engine": "Progress DCi (6 kW) / hibridinis", "fuel": "Dyzelis / hibridas", "top_speed_kmh": 45, "range_km": 400, "typical_price_used_eur": "7500–13500", "common_issues": ["Aukštesnės kartos elektronika – daugiau CAN-bus problemų", "Stabdžių diskai"]},
+        {"id": "chatenet-pick-up", "name": "Pick-Up", "years": "2014–2022", "engine": "Yanmar / Progress DCi (6 kW)", "fuel": "Dyzelis", "top_speed_kmh": 45, "range_km": 380, "typical_price_used_eur": "5000–9500", "common_issues": ["Galinės pakabos deformacija dėl krovinio", "Rėmo taškinis rūdijimas"]}
+      ]
+    },
+    {
+      "id": "jdm",
+      "name": "JDM",
+      "country": "🇫🇷 Prancūzija",
+      "founded": 1996,
+      "note": "Julien Damez Motors (JDM Simpa) – Prancūzija. Modeliai Aloès, Titane, Xheos, Roxsy. Yanmar 2 cyl. dyzeliai.",
+      "models": [
+        {"id": "jdm-aloes", "name": "Aloès", "years": "2002–2015", "engine": "Yanmar 2 cyl. (4–6 kW)", "fuel": "Dyzelis", "top_speed_kmh": 45, "range_km": 350, "typical_price_used_eur": "1800–4500", "common_issues": ["Elektros instaliacijos oksidacija", "Starterio relė", "Vairo strypų antgaliai"]},
+        {"id": "jdm-titane", "name": "Titane", "years": "2010–2020", "engine": "Yanmar / Lombardini DCi (5–6 kW)", "fuel": "Dyzelis", "top_speed_kmh": 45, "range_km": 400, "typical_price_used_eur": "3000–7000", "common_issues": ["EGR sistemos užsikimšimas", "ECU jungtys", "Priekinės pakabos guoliai"]},
+        {"id": "jdm-xheos", "name": "Xheos / Roxsy", "years": "2014–2024", "engine": "Progress DCi 500cc (6 kW)", "fuel": "Dyzelis", "top_speed_kmh": 45, "range_km": 420, "typical_price_used_eur": "5500–10500", "common_issues": ["CVT diržo dėvėjimasis", "Priekinių žibintų drėgmė"]}
+      ]
+    },
+    {
+      "id": "bellier",
+      "name": "Bellier",
+      "country": "🇫🇷 Prancūzija",
+      "founded": 1968,
+      "note": "Vienas seniausių gamintojų. Modeliai Docker, Divane, B8, Opale. Yanmar / Lombardini varikliai.",
+      "models": [
+        {"id": "bellier-docker", "name": "Docker", "years": "1998–2012", "engine": "Lombardini / Yanmar (4–5 kW)", "fuel": "Dyzelis", "top_speed_kmh": 45, "range_km": 350, "typical_price_used_eur": "1500–3800", "common_issues": ["Startevio relės atsijungimas", "Aušinimo skysčio nuotėkis", "Galinio tilto guoliai"]},
+        {"id": "bellier-divane", "name": "Divane / B8", "years": "2010–2020", "engine": "Lombardini FocsMD / DCi (5–6 kW)", "fuel": "Dyzelis", "top_speed_kmh": 45, "range_km": 380, "typical_price_used_eur": "3500–7500", "common_issues": ["Termostato gedimas", "Priekinės pakabos silentblokai", "Kaitinimo žvakės"]},
+        {"id": "bellier-opale", "name": "Opale", "years": "2018–2026", "engine": "Progress DCi 500cc (6 kW)", "fuel": "Dyzelis", "top_speed_kmh": 45, "range_km": 400, "typical_price_used_eur": "7000–12000", "common_issues": ["Aukštesnės kartos elektronika – CAN-bus problemos", "Elektros instaliacijos jungtys"]}
+      ]
+    },
+    {
+      "id": "casalini",
+      "name": "Casalini",
+      "country": "🇮🇹 Italija",
+      "founded": 1939,
+      "note": "Italų gamintojas. Modeliai M10, M14, M20. Lombardini varikliai. Sportinis dizainas.",
+      "models": [
+        {"id": "casalini-m10", "name": "M10", "years": "2007–2015", "engine": "Lombardini FocsMD (5 kW)", "fuel": "Dyzelis", "top_speed_kmh": 45, "range_km": 350, "typical_price_used_eur": "2200–5000", "common_issues": ["Aušinimo sistemos nuotėkiai", "ECU jungtys", "Startevio relė"]},
+        {"id": "casalini-m14", "name": "M14", "years": "2013–2022", "engine": "Lombardini Progress DCi (5–6 kW)", "fuel": "Dyzelis", "top_speed_kmh": 45, "range_km": 400, "typical_price_used_eur": "4500–9500", "common_issues": ["EGR užsikimšimas", "Kaitinimo žvakės žiemai", "Galinės pakabos amortizatoriai"]},
+        {"id": "casalini-m20", "name": "M20", "years": "2018–2026", "engine": "Progress DCi 500cc (6 kW) / EV", "fuel": "Dyzelis / Elektra", "top_speed_kmh": 45, "range_km": 400, "typical_price_used_eur": "8000–14000", "common_issues": ["Naujesnės kartos – dar mažai duomenų", "EV: BMS celių disbalansas"]}
+      ]
+    },
+    {
+      "id": "mega",
+      "name": "Mega",
+      "country": "🇫🇷 Prancūzija",
+      "founded": 1992,
+      "note": "Priklauso Aixam grupei. Utility/kroviniai modeliai (e-Worker, Multitruck).",
+      "models": [
+        {"id": "mega-multitruck", "name": "Multitruck", "years": "2005–2018", "engine": "Kubota Z482 (5 kW)", "fuel": "Dyzelis", "top_speed_kmh": 45, "range_km": 380, "typical_price_used_eur": "3500–8500", "common_issues": ["Krovinio platformos rėmo įtrūkimai", "Galinės rėmo dalies rūdys", "CVT diržas dėl krovinio"]},
+        {"id": "mega-eworker", "name": "e-Worker", "years": "2018–2026", "engine": "Elektrinis (LiFePO4)", "fuel": "Elektra", "top_speed_kmh": 45, "range_km": 100, "typical_price_used_eur": "10000–18000", "common_issues": ["BMS gedimai", "Krovimo modulis", "Salono elektronikos jungtys"]}
+      ]
+    },
+    {
+      "id": "grecav",
+      "name": "Grecav",
+      "country": "🇮🇹 Italija",
+      "founded": 1964,
+      "note": "Italų gamintojas. Modeliai EKE, Sonique, Simply. Lombardini ir vėliau elektriniai varikliai.",
+      "models": [
+        {"id": "grecav-eke", "name": "EKE", "years": "2005–2015", "engine": "Lombardini FocsMD (4–5 kW)", "fuel": "Dyzelis", "top_speed_kmh": 45, "range_km": 300, "typical_price_used_eur": "1500–4200", "common_issues": ["Aušinimo sistema", "ECU jungčių oksidacija", "Priekinės pakabos guoliai"]},
+        {"id": "grecav-sonique", "name": "Sonique", "years": "2010–2020", "engine": "Lombardini DCi (5–6 kW)", "fuel": "Dyzelis", "top_speed_kmh": 45, "range_km": 380, "typical_price_used_eur": "3200–7000", "common_issues": ["EGR", "Termostato gedimas", "Priekinių žibintų drėgmė"]}
+      ]
+    },
+    {
+      "id": "italcar",
+      "name": "Italcar / Tazzari",
+      "country": "🇮🇹 Italija",
+      "founded": 2005,
+      "note": "Tazzari ZERO – 100% elektrinis mikroautomobilis. Aliuminio kėbulas, sportinis dizainas.",
+      "models": [
+        {"id": "tazzari-zero", "name": "ZERO", "years": "2010–2026", "engine": "Elektrinis 15 kW (LiFePO4 12 kWh)", "fuel": "Elektra", "top_speed_kmh": 45, "range_km": 140, "typical_price_used_eur": "8500–18000", "common_issues": ["BMS celių disbalansas po 5–7 m.", "DC-DC keitiklis", "Krovimo jungtis (Type 2 adapteris)", "Programinės įrangos naujinimo klaidos"]}
+      ]
+    },
+    {
+      "id": "erad",
+      "name": "Erad / Secma",
+      "country": "🇫🇷 Prancūzija",
+      "founded": 1975,
+      "note": "Senas gamintojas, dabar dažniausiai naudoti egzemplioriai. Erad Spacia, Capucine, Junior.",
+      "models": [
+        {"id": "erad-spacia", "name": "Spacia / Capucine", "years": "1996–2010", "engine": "Lombardini / Yanmar (4–5 kW)", "fuel": "Dyzelis", "top_speed_kmh": 45, "range_km": 300, "typical_price_used_eur": "1000–3500", "common_issues": ["Rėmo rūdys (labai dažnai)", "Startevio sistema", "Elektros instaliacija visose vietose", "Kaitinimo žvakės"]}
+      ]
+    }
+  ]
+}

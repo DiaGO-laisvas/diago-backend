@@ -832,11 +832,14 @@ async def microcar_chat(req: MicrocarChatRequest):
     final_message = ctx_prefix + user_text + kb_context
 
     try:
-        chat = LlmChat(
-            api_key=api_key,
-            session_id=sid,
-            system_message=MICROCAR_SYSTEM_PROMPT,
-        ).with_model("gemini", "gemini-2.5-flash")
+        def _build_chat(key: str):
+            return LlmChat(
+                api_key=key,
+                session_id=sid,
+                system_message=MICROCAR_SYSTEM_PROMPT,
+            ).with_model("gemini", "gemini-2.5-flash")
+
+        chat = _build_chat(api_key)
 
         # Nuotrauka (jei yra)
         msg: UserMessage
@@ -849,7 +852,7 @@ async def microcar_chat(req: MicrocarChatRequest):
         else:
             msg = UserMessage(text=final_message)
 
-        reply = await _send_with_retry(chat, msg)
+        reply = await _send_with_retry(chat, msg, chat_factory=_build_chat)
 
         # Log į DB (admin analitikai)
         db = _get_db()
@@ -970,6 +973,80 @@ async def microcar_partners():
     except Exception as e:
         logger.warning("microcar_partners failed: %s", e)
         return {"partners": []}
+
+
+# =========================================================
+# ADMIN: Microcar verslo užklausų valdymas
+# =========================================================
+@api_router.get("/admin/microcar-business")
+async def admin_microcar_business(
+    status: str | None = None,
+    limit: int = 200,
+    authorization: str | None = Header(default=None),
+):
+    """Sąrašas verslo užklausų (visos arba pagal status). Ordered by created_at desc."""
+    _require_admin(authorization)
+    db = _get_db()
+    if db is None:
+        return {"items": [], "db_offline": True}
+    query: dict = {}
+    if status and status in ("new", "contacted", "active", "rejected"):
+        query["status"] = status
+    cur = db.microcar_business.find(query, {"_id": 0}).sort("created_at", -1).limit(max(1, min(limit, 500)))
+    rows = await cur.to_list(500)
+    # Suvestinė pagal status
+    counts = {"new": 0, "contacted": 0, "active": 0, "rejected": 0, "total": 0}
+    try:
+        pipeline = [{"$group": {"_id": "$status", "n": {"$sum": 1}}}]
+        async for doc in db.microcar_business.aggregate(pipeline):
+            s = doc.get("_id") or "new"
+            n = int(doc.get("n") or 0)
+            if s in counts:
+                counts[s] = n
+            counts["total"] += n
+    except Exception:
+        pass
+    return {"items": rows, "counts": counts}
+
+
+class MicrocarBusinessStatusUpdate(BaseModel):
+    inquiry_id: str
+    status: str  # new | contacted | active | rejected
+
+
+@api_router.post("/admin/microcar-business/update-status")
+async def admin_microcar_business_update_status(
+    body: MicrocarBusinessStatusUpdate,
+    authorization: str | None = Header(default=None),
+):
+    _require_admin(authorization)
+    if body.status not in ("new", "contacted", "active", "rejected"):
+        raise HTTPException(status_code=400, detail="Neteisingas status.")
+    db = _get_db()
+    if db is None:
+        raise HTTPException(status_code=500, detail="DB nesukonfigūruota.")
+    res = await db.microcar_business.update_one(
+        {"inquiry_id": body.inquiry_id},
+        {"$set": {"status": body.status, "updated_at": datetime.now(timezone.utc)}},
+    )
+    if res.matched_count == 0:
+        raise HTTPException(status_code=404, detail="Užklausa nerasta.")
+    return {"ok": True, "status": body.status}
+
+
+@api_router.delete("/admin/microcar-business")
+async def admin_microcar_business_delete(
+    inquiry_id: str,
+    authorization: str | None = Header(default=None),
+):
+    _require_admin(authorization)
+    db = _get_db()
+    if db is None:
+        raise HTTPException(status_code=500, detail="DB nesukonfigūruota.")
+    res = await db.microcar_business.delete_one({"inquiry_id": inquiry_id})
+    if res.deleted_count == 0:
+        raise HTTPException(status_code=404, detail="Užklausa nerasta.")
+    return {"ok": True}
 
 
 
@@ -3680,18 +3757,57 @@ def _is_transient_llm_error(e: Exception) -> bool:
     return any(m in raw for m in transient_markers)
 
 
-async def _send_with_retry(chat, msg, max_retries: int = 2, base_delay: float = 2.5):
-    """Siunčia žinutę su automatiniu pakartojimu, jei Gemini grąžina transient klaidą (503, 429 ir t.t.).
-    Tai padeda apgaubti laikinus Google API overload'us – vartotojas dažniausiai nematys klaidos.
+def _is_quota_error(e: Exception) -> bool:
+    """Konkretus quota / rate limit klaidos požymis (429 / RESOURCE_EXHAUSTED)."""
+    raw = str(e).lower()
+    return ("429" in raw or "resource_exhausted" in raw or "quota" in raw
+            or "rate limit" in raw or "quota_exceeded" in raw)
+
+
+async def _send_with_retry(chat, msg, max_retries: int = 2, base_delay: float = 2.5,
+                           enable_emergent_fallback: bool = True,
+                           chat_factory=None):
+    """Siunčia žinutę su automatiniu pakartojimu ir Emergent LLM fallback'u kvotos išnaudojimo atveju.
+
+    Args:
+        chat_factory: opcionali callable(api_key: str) -> chat, kuri leidžia sukurti
+                      naują chat objektą su alternatyviu raktu (Emergent fallback).
+                      Jei None – fallback nevykdomas.
     """
     import asyncio as _asyncio
+
+    async def _try_emergent_fallback(orig_exc: Exception):
+        """Jei Gemini kvota išnaudota IR turime EMERGENT_LLM_KEY – bandom su juo."""
+        if not (enable_emergent_fallback and chat_factory is not None):
+            return None
+        emergent_key = (os.environ.get("EMERGENT_LLM_KEY") or "").strip()
+        if not emergent_key:
+            return None
+        logger.warning("🔄 Gemini kvota išnaudota → jungiu Emergent LLM fallback")
+        try:
+            fb_chat = chat_factory(emergent_key)
+            return await fb_chat.send_message(msg)
+        except Exception as fbe:
+            logger.warning("Emergent fallback taip pat nepavyko: %s", str(fbe)[:200])
+            return None
+
     last_exc = None
     for attempt in range(max_retries + 1):
         try:
             return await chat.send_message(msg)
         except Exception as e:
             last_exc = e
+            # ⚡ Kvotos klaida – nedelsiant į Emergent (nešvaistom retries į išnaudotą Gemini)
+            if _is_quota_error(e):
+                fb = await _try_emergent_fallback(e)
+                if fb is not None:
+                    return fb
+                raise
             if not _is_transient_llm_error(e) or attempt >= max_retries:
+                # Paskutinis šansas – gal Emergent padės (jei tai transient bet ne quota)
+                fb = await _try_emergent_fallback(e)
+                if fb is not None:
+                    return fb
                 raise
             delay = base_delay * (2 ** attempt)  # 2.5s → 5s → 10s
             logger.warning("⏳ Gemini transient klaida (bandymas %d/%d): %s. Pakartoju po %.1fs",
