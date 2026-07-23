@@ -756,7 +756,7 @@ JEI PATEIKTA NUOTRAUKA:
 KAI KLAUSIA APIE DETALES ARBA SERVISUS (SVARBU):
 Vietoj konkrečių įmonių, atsakyk PAGAL ŠABLONĄ:
 > „🚧 **DiaGO partnerių tinklas – ruošiamas.**
-> Šiuo metu curuojame patvirtintų mikroautomobilių detalių tiekėjų ir servisų sąrašą Lietuvoje. Netrukus jį matysite šiame puslapyje.
+> Šiuo metu tikriname patvirtintus mikroautomobilių detalių tiekėjus ir servisus Lietuvoje. Netrukus juos matysite šiame puslapyje.
 >
 > Kol kas – susisiekite su DiaGO komanda ir mes asmeniškai rekomenduosime patikrintus kontaktus pagal Jūsų regioną ir modelį:
 > 📧 **jt@diago.lt**
