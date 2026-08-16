@@ -32,6 +32,7 @@ import re
 import hmac
 import json
 import ssl
+import uuid
 import hashlib
 import logging
 import secrets
@@ -776,10 +777,15 @@ VARIKLIO VARIANTAI:
 Jei vartotojas nurodo konkretų modelį ir turi kelis variklio variantus (pvz. „galimi varikliai: Lombardini LDW 492 DCI · Yanmar Progress"), NESUSTOK ties vienu – paklausk arba paminėk visus, priklausomai nuo klausimo tipo. Tepalo keitimo atveju – tepalo tipas gali skirtis skirtingiems varikliams, tad išvardink kiekvienam variantui rekomendacijas.
 
 TIKSLUMAS – KRITIŠKAI SVARBU:
-- **NEIŠGALVOK VARIKLIO PAVADINIMŲ.** Jei nesi tikras dėl konkretaus modelio variklio – aiškiai pasakyk „reikia patikrinti VIN kortelėje" arba paklausk vartotojo apie pagaminimo metus.
+- **NEIŠGALVOK VARIKLIO PAVADINIMŲ.** Jei nesi tikras dėl konkretaus modelio variklio – aiškiai pasakyk „reikia patikrinti VIN kortelėje".
 - Naudok TIK tuos variklio duomenis, kurie yra vartotojo kontekste „galimi varikliai:...".
 - Nepridėk savo variantų (kaip „Progress 500", „Focs 505" ar kitų), jei jų nėra kontekste.
-- Jei vartotojas nenurodė metų – atsakymo pradžioje trumpai paprašyk metų, nes tuo pačiu modeliu galėjo eiti skirtingi varikliai.
+
+🧠 ATMINTIS – ABSOLIUTI TAISYKLĖ:
+- Jei žinutės pradžioje matai `[VARTOTOJO AUTOMOBILIS – ATSIMINK...]` blokelį – tai vartotojo pasirinktas automobilis. Naudok jį VISUS klausimus, kol pokalbis tęsiasi.
+- **NIEKADA neklausk „koks jūsų automobilis?" arba „kokia markė/modelis?"** – ši informacija JAU YRA vartotojo kontekste. Klausti to yra kritinė klaida.
+- Jei matai `[ANKSTESNIS POKALBIS]` blokelį – tai jau vykę mainai. Nekartok ir tęsk logiškai.
+- Jei automobilio konteksto NĖRA (t.y. blokelio nėra) – TIK TADA gali paklausti, KOKIA marka/modelis. Bet nekartok šio klausimo jei jis jau atsakytas ankstesniuose mainuose.
 
 KAI KLAUSIA APIE DETALES ARBA SERVISUS (SVARBU):
 Vietoj konkrečių įmonių, atsakyk PAGAL ŠABLONĄ:
@@ -803,6 +809,8 @@ class MicrocarChatRequest(BaseModel):
     session_id: str | None = None
     image_base64: str | None = None
     context: str | None = None  # "buying", "repair", "parts", "service", "general"
+    vehicle_context: str | None = None  # pvz. "Ligier JS50L 2017, dyzelis, Lombardini LDW 492 DCI"
+    history: list[dict] | None = None   # [{"role":"user"|"assistant","content":"..."}, ...]
 
 
 class MicrocarChatResponse(BaseModel):
@@ -865,7 +873,43 @@ async def microcar_chat(req: MicrocarChatRequest):
         for h in kb_hits[:2]:
             kb_context += f"• {h['title']} (kaina: {h.get('possible_cause','')[:120]}...)\n"
 
-    final_message = ctx_prefix + user_text + kb_context
+    # 🚗 Vartotojo automobilis (pastovus visame pokalbyje) – SVARBU: AI turi ATSIMINTI
+    vehicle_block = ""
+    v_ctx = (req.vehicle_context or "").strip()
+    if v_ctx:
+        vehicle_block = (
+            f"\n[VARTOTOJO AUTOMOBILIS – ATSIMINK per visą pokalbį]: {v_ctx[:500]}\n"
+            "Kai vartotojas užduoda klausimą apie variklį, tepalus, gedimus ir pan. – "
+            "jis kalba būtent apie šį automobilį. NIEKADA neklausk 'koks jūsų automobilis?'.\n"
+        )
+
+    # 💬 Ankstesnės pokalbio žinutės (kad AI turėtų atmintį)
+    history_block = ""
+    hist = req.history or []
+    if isinstance(hist, list) and hist:
+        # Paskutinės 12 žinučių (6 user + 6 assistant), max po 800 simb.
+        recent = hist[-12:]
+        lines = []
+        for h in recent:
+            role = (h.get("role") or "").lower()
+            content = (h.get("content") or "").strip()[:800]
+            if not content:
+                continue
+            if role == "user":
+                lines.append(f"Vartotojas: {content}")
+            elif role in ("assistant", "ai", "bot"):
+                lines.append(f"Asistentas: {content}")
+        if lines:
+            history_block = "\n[ANKSTESNIS POKALBIS]:\n" + "\n".join(lines) + "\n"
+
+    final_message = (
+        ctx_prefix
+        + vehicle_block
+        + history_block
+        + ("\n[DABARTINĖ VARTOTOJO ŽINUTĖ]:\n" if (vehicle_block or history_block) else "")
+        + user_text
+        + kb_context
+    )
 
     try:
         def _build_chat(key: str):
