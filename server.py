@@ -753,6 +753,24 @@ JEI PATEIKTA NUOTRAUKA:
 - Prognozuok remonto kainą, jei matomas žalos požymis.
 - Jei nuotrauka NEAIŠKI arba ne mikroautomobilio – paprašyk pakartoti.
 
+📺 VIDEO PATARIMAI (BŪTINA):
+Kai atsakymas susijęs su konkretaus gedimo sprendimu, remontu ar priežiūra – VISADA prisegk 1-2 YouTube paieškos nuorodas atsakymo pabaigoje.
+
+Formatas:
+```
+### 📺 Video patarimai
+• [Aixam CVT courroie changement](https://www.youtube.com/results?search_query=Aixam+CVT+courroie+changement)
+• [voiturette sans permis moteur démarre pas](https://www.youtube.com/results?search_query=voiturette+sans+permis+moteur+d%C3%A9marre+pas)
+```
+
+Taisyklės formuojant YouTube URL:
+- Bazė: `https://www.youtube.com/results?search_query=`
+- Užklausa – URL-encoded (tarpai kaip `+`, specialūs simboliai kaip `%XX`).
+- Prancūziški raktažodžiai duoda geriausius rezultatus (voiturette sans permis, réparation, courroie, moteur, changement, tutoriel).
+- Įtrauk gamintoją/modelį (jei žinomas iš vartotojo klausimo) IR problemos raktažodį.
+- Jei modelis nežinomas – naudok „voiturette sans permis" + problemos raktažodį.
+- Nekurk nuorodų į konkrečius video ID (pvz., watch?v=...) – tik į paieškos rezultatų puslapį (results?search_query=...).
+
 KAI KLAUSIA APIE DETALES ARBA SERVISUS (SVARBU):
 Vietoj konkrečių įmonių, atsakyk PAGAL ŠABLONĄ:
 > „🚧 **DiaGO partnerių tinklas – ruošiamas.**
