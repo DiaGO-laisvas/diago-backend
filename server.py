@@ -816,6 +816,7 @@ class MicrocarChatRequest(BaseModel):
 class MicrocarChatResponse(BaseModel):
     reply: str
     session_id: str
+    chat_id: str
     kb_hits: list[dict] = []
 
 
@@ -934,26 +935,33 @@ async def microcar_chat(req: MicrocarChatRequest):
 
         reply = await _send_with_retry(chat, msg, chat_factory=_build_chat)
 
+        # Generuojam chat_id kiekvienai porai (užpakalinei rating funkcijai)
+        chat_id = uuid.uuid4().hex
+
         # Log į DB (admin analitikai)
         db = _get_db()
         if db is not None:
             try:
                 await db.microcar_chats.insert_one({
+                    "chat_id": chat_id,
                     "session_id": sid,
                     "context": ctx,
                     "user_message": user_text[:1500],
                     "had_image": has_image,
                     "assistant_reply": (reply or "")[:5000],
+                    "vehicle_context": (req.vehicle_context or "")[:500],
                     "kb_hits_count": len(kb_hits),
                     "kb_hit_ids": [h["id"] for h in kb_hits[:5]],
                     "msg_len": len(user_text),
                     "reply_len": len(reply or ""),
+                    "rating": None,  # 'up' | 'down' | None
+                    "rating_comment": None,
                     "created_at": datetime.now(timezone.utc),
                 })
             except Exception:
                 pass
 
-        return MicrocarChatResponse(reply=reply, session_id=sid, kb_hits=kb_hits[:3])
+        return MicrocarChatResponse(reply=reply, session_id=sid, chat_id=chat_id, kb_hits=kb_hits[:3])
     except HTTPException:
         raise
     except Exception as e:
@@ -981,6 +989,237 @@ async def microcar_data():
             except Exception as e:
                 logger.warning("Failed to load %s: %s", fname, e)
     return out
+
+
+# ==============================================================
+# 📊 MICROCAR ANALYTICS + VISIT LOG + RATING
+# ==============================================================
+class MicrocarVisit(BaseModel):
+    session_id: str | None = None
+    referrer: str | None = None
+    user_agent: str | None = None
+
+
+@api_router.post("/microcar/visit")
+async def microcar_visit(req: MicrocarVisit, request: Request):
+    """Įrašo apsilankymą (viena eilutė per session_id per 24 val.). Naudoja frontend'as init'e."""
+    db = _get_db()
+    if db is None:
+        return {"ok": True, "db": "offline"}
+    sid = (req.session_id or "").strip() or ("microcar-anon-" + uuid.uuid4().hex[:10])
+    ua = (req.user_agent or (request.headers.get("user-agent") or ""))[:250]
+    ref = (req.referrer or "")[:250]
+    ip = (request.client.host if request.client else "") or ""
+    ip_hash = hashlib.sha256(ip.encode()).hexdigest()[:16] if ip else ""
+    now = datetime.now(timezone.utc)
+    try:
+        # 1 eilutė per session_id per dieną – kad išvengtume dublavimo tam pačiam vartotojui
+        day_key = now.strftime("%Y-%m-%d")
+        await db.microcar_visits.update_one(
+            {"session_id": sid, "day": day_key},
+            {"$setOnInsert": {
+                "session_id": sid,
+                "day": day_key,
+                "user_agent": ua,
+                "referrer": ref,
+                "ip_hash": ip_hash,
+                "created_at": now,
+            }},
+            upsert=True,
+        )
+    except Exception as e:
+        logger.warning("microcar_visit failed: %s", e)
+    return {"ok": True, "session_id": sid}
+
+
+class MicrocarRating(BaseModel):
+    chat_id: str
+    rating: str  # 'up' | 'down'
+    comment: str | None = None
+
+
+@api_router.post("/microcar/rate")
+async def microcar_rate(req: MicrocarRating):
+    """Vartotojas įvertina AI atsakymą (👍 arba 👎). Neprivalomas komentaras."""
+    if req.rating not in ("up", "down"):
+        raise HTTPException(status_code=400, detail="rating turi būti 'up' arba 'down'")
+    db = _get_db()
+    if db is None:
+        raise HTTPException(status_code=500, detail="DB nesukonfigūruota")
+    res = await db.microcar_chats.update_one(
+        {"chat_id": req.chat_id},
+        {"$set": {"rating": req.rating, "rating_comment": (req.comment or "")[:500], "rated_at": datetime.now(timezone.utc)}},
+    )
+    if res.matched_count == 0:
+        raise HTTPException(status_code=404, detail="Pokalbis nerastas")
+    return {"ok": True}
+
+
+def _extract_brand_from_context(vc: str) -> str:
+    """Iš 'Ligier JS50L, 2017 m., ...' ištraukia gamintojo pavadinimą (pirmą žodį)."""
+    s = (vc or "").strip()
+    if not s:
+        return ""
+    # pirmą žodį iki tarpo/kablelio
+    import re as _re
+    m = _re.match(r"([A-Za-zĄČĘĖĮŠŲŪŽąčęėįšųūž0-9./\-]+)", s)
+    return m.group(1) if m else s.split()[0]
+
+
+def _extract_model_from_context(vc: str) -> str:
+    """Iš 'Ligier JS50 L, 2017 m., ...' ištraukia „Ligier JS50 L" (brand + model, iki kablelio)."""
+    s = (vc or "").strip()
+    if not s:
+        return ""
+    head = s.split(",", 1)[0].strip()
+    return head[:80]
+
+
+@api_router.get("/admin/microcar-analytics")
+async def admin_microcar_analytics(
+    days: int = 30,
+    authorization: str | None = Header(default=None),
+):
+    """Microcar hub'o statistika: apsilankymai, top gamintojai/modeliai, dažniausi klausimai, ratings."""
+    _require_admin(authorization)
+    db = _get_db()
+    if db is None:
+        return {"db_offline": True}
+    days = max(1, min(days, 365))
+    since = datetime.now(timezone.utc) - timedelta(days=days)
+
+    # 1) Apsilankymai
+    total_visits = await db.microcar_visits.count_documents({"created_at": {"$gte": since}})
+    unique_sessions_visits = len(await db.microcar_visits.distinct("session_id", {"created_at": {"$gte": since}}))
+
+    # 2) Pokalbių statistika
+    total_chats = await db.microcar_chats.count_documents({"created_at": {"$gte": since}})
+    unique_sessions_chats = len(await db.microcar_chats.distinct("session_id", {"created_at": {"$gte": since}}))
+
+    # 3) Top gamintojai (iš vehicle_context)
+    top_brands: list[dict] = []
+    top_models: list[dict] = []
+    try:
+        pipeline_brands = [
+            {"$match": {"created_at": {"$gte": since}, "vehicle_context": {"$exists": True, "$ne": ""}}},
+            {"$project": {"brand": {"$arrayElemAt": [{"$split": ["$vehicle_context", " "]}, 0]}}},
+            {"$group": {"_id": "$brand", "n": {"$sum": 1}}},
+            {"$sort": {"n": -1}},
+            {"$limit": 12},
+        ]
+        async for doc in db.microcar_chats.aggregate(pipeline_brands):
+            name = (doc.get("_id") or "").strip()
+            if name:
+                top_brands.append({"brand": name, "count": doc["n"]})
+
+        pipeline_models = [
+            {"$match": {"created_at": {"$gte": since}, "vehicle_context": {"$exists": True, "$ne": ""}}},
+            {"$project": {"model": {"$arrayElemAt": [{"$split": ["$vehicle_context", ","]}, 0]}}},
+            {"$group": {"_id": "$model", "n": {"$sum": 1}}},
+            {"$sort": {"n": -1}},
+            {"$limit": 15},
+        ]
+        async for doc in db.microcar_chats.aggregate(pipeline_models):
+            name = (doc.get("_id") or "").strip()
+            if name:
+                top_models.append({"model": name[:80], "count": doc["n"]})
+    except Exception as e:
+        logger.warning("microcar analytics agg failed: %s", e)
+
+    # 4) Ratings suvestinė
+    up_count = await db.microcar_chats.count_documents({"created_at": {"$gte": since}, "rating": "up"})
+    down_count = await db.microcar_chats.count_documents({"created_at": {"$gte": since}, "rating": "down"})
+    total_rated = up_count + down_count
+    satisfaction = round((up_count / total_rated) * 100) if total_rated else None
+
+    # 5) Vidutinis ilgis
+    avg_msg_len = 0
+    avg_reply_len = 0
+    try:
+        pipeline_avg = [
+            {"$match": {"created_at": {"$gte": since}}},
+            {"$group": {"_id": None, "avg_msg": {"$avg": "$msg_len"}, "avg_reply": {"$avg": "$reply_len"}}},
+        ]
+        async for doc in db.microcar_chats.aggregate(pipeline_avg):
+            avg_msg_len = round(doc.get("avg_msg") or 0)
+            avg_reply_len = round(doc.get("avg_reply") or 0)
+    except Exception:
+        pass
+
+    return {
+        "since": since.isoformat(),
+        "days": days,
+        "visits": {"total": total_visits, "unique_sessions": unique_sessions_visits},
+        "chats": {"total": total_chats, "unique_sessions": unique_sessions_chats},
+        "ratings": {"up": up_count, "down": down_count, "total": total_rated, "satisfaction_pct": satisfaction},
+        "avg_lengths": {"user_message": avg_msg_len, "assistant_reply": avg_reply_len},
+        "top_brands": top_brands,
+        "top_models": top_models,
+    }
+
+
+@api_router.get("/admin/microcar-sessions")
+async def admin_microcar_sessions(
+    limit: int = 50,
+    authorization: str | None = Header(default=None),
+):
+    """Sessionų sąrašas: kiekvienai session – pirmoji vehicle_context, pirmoji žinutė, žinučių sk., data."""
+    _require_admin(authorization)
+    db = _get_db()
+    if db is None:
+        return {"sessions": []}
+    limit = max(1, min(limit, 200))
+    pipeline = [
+        {"$sort": {"created_at": -1}},
+        {"$group": {
+            "_id": "$session_id",
+            "last_at": {"$first": "$created_at"},
+            "first_at": {"$last": "$created_at"},
+            "count": {"$sum": 1},
+            "vehicle_context": {"$first": "$vehicle_context"},
+            "first_message": {"$last": "$user_message"},
+            "up_count": {"$sum": {"$cond": [{"$eq": ["$rating", "up"]}, 1, 0]}},
+            "down_count": {"$sum": {"$cond": [{"$eq": ["$rating", "down"]}, 1, 0]}},
+        }},
+        {"$sort": {"last_at": -1}},
+        {"$limit": limit},
+    ]
+    sessions: list[dict] = []
+    async for doc in db.microcar_chats.aggregate(pipeline):
+        sessions.append({
+            "session_id": doc["_id"],
+            "last_at": doc.get("last_at").isoformat() if doc.get("last_at") else None,
+            "first_at": doc.get("first_at").isoformat() if doc.get("first_at") else None,
+            "message_count": doc.get("count", 0),
+            "vehicle_context": (doc.get("vehicle_context") or "")[:200],
+            "first_message": (doc.get("first_message") or "")[:200],
+            "ratings": {"up": doc.get("up_count", 0), "down": doc.get("down_count", 0)},
+        })
+    return {"sessions": sessions}
+
+
+@api_router.get("/admin/microcar-session/{session_id}")
+async def admin_microcar_session_detail(
+    session_id: str,
+    authorization: str | None = Header(default=None),
+):
+    """Visas konkrečios session'os pokalbis."""
+    _require_admin(authorization)
+    db = _get_db()
+    if db is None:
+        return {"messages": []}
+    cur = db.microcar_chats.find(
+        {"session_id": session_id},
+        {"_id": 0}
+    ).sort("created_at", 1).limit(500)
+    msgs = await cur.to_list(500)
+    # Konvertuojam datas į iso
+    for m in msgs:
+        if m.get("created_at"):
+            m["created_at"] = m["created_at"].isoformat()
+        if m.get("rated_at"):
+            m["rated_at"] = m["rated_at"].isoformat()
+    return {"messages": msgs}
 
 
 class MicrocarBusinessInquiry(BaseModel):
