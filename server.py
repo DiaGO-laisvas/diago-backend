@@ -813,11 +813,74 @@ class MicrocarChatRequest(BaseModel):
     history: list[dict] | None = None   # [{"role":"user"|"assistant","content":"..."}, ...]
 
 
+class MicrocarPartner(BaseModel):
+    company_name: str
+    service_type: str
+    city: str | None = None
+    website: str | None = None
+    phone: str | None = None
+    email: str | None = None
+    description: str | None = None
+
+
 class MicrocarChatResponse(BaseModel):
     reply: str
     session_id: str
     chat_id: str
     kb_hits: list[dict] = []
+    partners: list[MicrocarPartner] | None = None   # 🎯 Jei intent atpažintas
+    partner_intent: str | None = None                # 🎯 pvz. "car_seller", "repair"
+
+
+# =========================================================
+# 🎯 PARTNER INTENT DETECTION
+# =========================================================
+# Intent → service_type reikšmė + regex šablonas (case-insensitive, LT + EN)
+_INTENT_PATTERNS: list[tuple[str, str, str]] = [
+    ("car_seller",  "Mikroautomobilių pardavėjai",
+     r"\b(kas\s+parduoda|kur\s+pirkti|salonas|prekiautoj\w*|pardav[eė]j\w*|dealer|prekyb(a|os)?\s+centr|(kur|kokio(je)?)\s+galima\s+įsigyti|kur\s+įsigyti|kur\s+galiu\s+nusipirkti|automobili[ųu]\s+pardav)\b"),
+    ("repair",      "Servisai / remontas",
+     r"\b(kur\s+remontuoti|servisas|servisai|serviso|taiso|meistras|mechanik|remontuoja|kas\s+taiso|repair\s+shop|garažas|kur\s+suremontuo)\b"),
+    ("parts",       "Detalių tiekėjai",
+     r"\b(kur\s+gauti\s+detalių|kur\s+nusipirkti\s+dalis|detales|detalės|dalys|atsarginė|atsargines|parts\s+shop|dalių\s+parduotuvė)\b"),
+    ("rental",      "Nuomos paslaugos",
+     r"\b(kur\s+nuomotis|nuomotis|nuoma|išsinuomoti|isinuomoti|rent\s+a\s+car|rental|nuomos\s+paslaug)\b"),
+    ("insurance",   "Draudimas / TA",
+     r"\b(draudimas|apdraust|kasko|civilinė\s+atsakomyb|techninė\s+apžiūra|technine\s+apziura|\bTA\b|insurance)\b"),
+    ("tuning",      "Tuning specialistai",
+     r"\b(tuning|tjuning|modifikacij|chip\s+tuning|galios\s+didinimas|remap)\b"),
+    ("kevalo",      "Kėbulo darbai",
+     r"\b(kėbulo|kebulo|body\s+shop|dažym|dazym|lyginimas|paint\s+job)\b"),
+]
+
+
+def _detect_partner_intent(message: str) -> tuple[str | None, str | None]:
+    """Grąžina (service_type, human_label) arba (None, None)."""
+    import re as _re
+    txt = (message or "").lower()
+    if not txt:
+        return (None, None)
+    for stype, label, pattern in _INTENT_PATTERNS:
+        try:
+            if _re.search(pattern, txt, _re.IGNORECASE):
+                return (stype, label)
+        except _re.error:
+            continue
+    return (None, None)
+
+
+async def _fetch_partners_for_intent(service_type: str, limit: int = 12) -> list[dict]:
+    """Iš microcar_business kolekcijos ištraukia patvirtintus (status=active) partnerius.
+    Rūšiuoja pagal pridėjimo datą (naujausi pirmi)."""
+    db = _get_db()
+    if db is None:
+        return []
+    cur = db.microcar_business.find(
+        {"status": "active", "service_type": service_type},
+        {"_id": 0, "company_name": 1, "service_type": 1, "city": 1, "website": 1,
+         "description": 1, "phone": 1, "email": 1}
+    ).sort("created_at", -1).limit(limit)
+    return [doc async for doc in cur]
 
 
 @api_router.post("/microcar/chat", response_model=MicrocarChatResponse)
@@ -903,6 +966,39 @@ async def microcar_chat(req: MicrocarChatRequest):
         if lines:
             history_block = "\n[ANKSTESNIS POKALBIS]:\n" + "\n".join(lines) + "\n"
 
+    # 🎯 Aptikti partnerio intent'ą PRIEŠ siunčiant į LLM
+    partner_intent, partner_label = _detect_partner_intent(user_text)
+    partners_docs: list[dict] = []
+    if partner_intent:
+        partners_docs = await _fetch_partners_for_intent(partner_intent, limit=12)
+
+    # Papildomas kontekstas AI, kad žinotų mūsų partnerių sąrašą
+    partners_block = ""
+    if partner_intent:
+        if partners_docs:
+            plist = "\n".join([
+                f"• {p.get('company_name','')} ({p.get('city') or 'miestas nenurodytas'})"
+                + (f" – {p.get('phone')}" if p.get('phone') else "")
+                + (f" · {p.get('website')}" if p.get('website') else "")
+                + (f" – {p.get('description')[:120]}" if p.get('description') else "")
+                for p in partners_docs
+            ])
+            partners_block = (
+                f"\n\n[DiaGO PARTNERIU SARASAS - kategorija: {partner_label}]\n"
+                f"{plist}\n\n"
+                "TAI VIENINTELIS PATVIRTINTU PARTNERIU SARASAS. "
+                "Trumpai (1-2 sakiniais) pristatyk vartotojui, kad rodome musu patvirtintus partnerius, "
+                "ir nurodyk 'zr. korteles zemiau' - nekartok ju kontaktu atsakyme, nes jie bus atvaizduoti kaip UI korteles.\n"
+            )
+        else:
+            partners_block = (
+                f"\n\n[DiaGO PARTNERIU STATUSAS - kategorija: {partner_label}]\n"
+                "Siuo metu si partneriu kategorija ruosiama - NERA patvirtintu irasu.\n"
+                "Trumpai (1-2 sakiniais) informuok vartotoja, kad partneriu sarasas ruosiamas, "
+                "ir pasiulyk susisiekti su DiaGO komanda tiesiogiai: jt@diago.lt / +370 696 02021.\n"
+                "NEISGALVOK partneriu pavadinimu - tai grieztai draudziama.\n"
+            )
+
     final_message = (
         ctx_prefix
         + vehicle_block
@@ -910,6 +1006,7 @@ async def microcar_chat(req: MicrocarChatRequest):
         + ("\n[DABARTINĖ VARTOTOJO ŽINUTĖ]:\n" if (vehicle_block or history_block) else "")
         + user_text
         + kb_context
+        + partners_block
     )
 
     try:
@@ -961,7 +1058,14 @@ async def microcar_chat(req: MicrocarChatRequest):
             except Exception:
                 pass
 
-        return MicrocarChatResponse(reply=reply, session_id=sid, chat_id=chat_id, kb_hits=kb_hits[:3])
+        return MicrocarChatResponse(
+            reply=reply,
+            session_id=sid,
+            chat_id=chat_id,
+            kb_hits=kb_hits[:3],
+            partners=[MicrocarPartner(**p) for p in partners_docs] if partners_docs else None,
+            partner_intent=partner_intent,
+        )
     except HTTPException:
         raise
     except Exception as e:
@@ -1227,7 +1331,7 @@ class MicrocarBusinessInquiry(BaseModel):
     contact_person: str | None = None
     email: str
     phone: str | None = None
-    service_type: str  # "repair", "parts", "tuning", "diagnostics", "kevalo", "other"
+    service_type: str  # "car_seller", "repair", "parts", "tuning", "diagnostics", "kevalo", "electric", "rental", "insurance", "other"
     city: str | None = None
     website: str | None = None
     description: str
@@ -1364,6 +1468,89 @@ async def admin_microcar_business_delete(
         raise HTTPException(status_code=500, detail="DB nesukonfigūruota.")
     res = await db.microcar_business.delete_one({"inquiry_id": inquiry_id})
     if res.deleted_count == 0:
+        raise HTTPException(status_code=404, detail="Užklausa nerasta.")
+    return {"ok": True}
+
+
+class MicrocarPartnerCreate(BaseModel):
+    company_name: str
+    service_type: str  # car_seller, repair, parts, tuning, diagnostics, kevalo, electric, rental, insurance, other
+    contact_person: str | None = None
+    email: str | None = None
+    phone: str | None = None
+    city: str | None = None
+    website: str | None = None
+    description: str | None = None
+    status: str = "active"  # admin gali iš karto padaryti active
+
+
+@api_router.post("/admin/microcar-business/create")
+async def admin_microcar_business_create(
+    body: MicrocarPartnerCreate,
+    authorization: str | None = Header(default=None),
+):
+    """Admin rankiniu būdu prideda naują partnerį (be viešos formos)."""
+    _require_admin(authorization)
+    if not body.company_name.strip():
+        raise HTTPException(status_code=400, detail="Įmonės pavadinimas privalomas.")
+    if body.status not in ("new", "contacted", "active", "rejected"):
+        raise HTTPException(status_code=400, detail="Neteisingas status.")
+    db = _get_db()
+    if db is None:
+        raise HTTPException(status_code=500, detail="DB nesukonfigūruota.")
+    now = datetime.now(timezone.utc)
+    doc = {
+        "inquiry_id": uuid.uuid4().hex,
+        "company_name": body.company_name.strip()[:200],
+        "contact_person": (body.contact_person or "").strip()[:120] or None,
+        "email": (body.email or "").strip()[:120] or None,
+        "phone": (body.phone or "").strip()[:60] or None,
+        "service_type": body.service_type.strip().lower()[:30],
+        "city": (body.city or "").strip()[:80] or None,
+        "website": (body.website or "").strip()[:200] or None,
+        "description": (body.description or "").strip()[:1500] or None,
+        "consent": True,  # admin patvirtino
+        "status": body.status,
+        "source": "admin_manual",
+        "created_at": now,
+        "updated_at": now,
+    }
+    await db.microcar_business.insert_one(doc)
+    return {"ok": True, "inquiry_id": doc["inquiry_id"], "status": doc["status"]}
+
+
+class MicrocarPartnerUpdate(BaseModel):
+    company_name: str | None = None
+    service_type: str | None = None
+    contact_person: str | None = None
+    email: str | None = None
+    phone: str | None = None
+    city: str | None = None
+    website: str | None = None
+    description: str | None = None
+
+
+@api_router.patch("/admin/microcar-business/{inquiry_id}")
+async def admin_microcar_business_update(
+    inquiry_id: str,
+    body: MicrocarPartnerUpdate,
+    authorization: str | None = Header(default=None),
+):
+    """Admin redaguoja partnerio duomenis."""
+    _require_admin(authorization)
+    db = _get_db()
+    if db is None:
+        raise HTTPException(status_code=500, detail="DB nesukonfigūruota.")
+    updates = {k: v for k, v in body.model_dump(exclude_unset=True).items() if v is not None}
+    if not updates:
+        return {"ok": True, "no_changes": True}
+    # Trim
+    for k in ("company_name","contact_person","email","phone","city","website","description","service_type"):
+        if k in updates and isinstance(updates[k], str):
+            updates[k] = updates[k].strip()[:200]
+    updates["updated_at"] = datetime.now(timezone.utc)
+    res = await db.microcar_business.update_one({"inquiry_id": inquiry_id}, {"$set": updates})
+    if res.matched_count == 0:
         raise HTTPException(status_code=404, detail="Užklausa nerasta.")
     return {"ok": True}
 
