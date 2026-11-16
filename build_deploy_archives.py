@@ -20,19 +20,31 @@ OUT_DIR.mkdir(parents=True, exist_ok=True)
 
 BACKEND_ZIP = OUT_DIR / "diago_backend.zip"
 FRONTEND_ZIP = OUT_DIR / "diago_frontend.zip"
+WEB_BUILD_ZIP = OUT_DIR / "diago_frontend_web.zip"
 
 # --- Exclusions ------------------------------------------------------------
 EXCLUDE_DIRS = {
     "node_modules", ".metro-cache", ".ruff_cache", "__pycache__",
-    ".git", "venv", ".venv", "dist", "build", ".expo", ".next",
+    ".git", "venv", ".venv", "build", ".expo", ".next",
     ".cache", ".idea", ".vscode", "coverage", ".pytest_cache",
     "test_reports",
+    # Note: we KEEP "dist" so frontend zip includes the pre-rendered web build
 }
 # Patterns that match generated files inside kept directories (backend/assets)
 EXCLUDE_FILES = {
     ".DS_Store", "diago_source.zip", "diago_full_source.zip",
-    "diago_backend.zip", "diago_frontend.zip", "CACHEDIR.TAG",
+    "diago_backend.zip", "diago_frontend.zip", "diago_frontend_web.zip",
+    "CACHEDIR.TAG",
     "expo-env.d.ts", "README.md",  # we write our own README.md
+    "package-lock.json",  # project uses yarn (yarn.lock)
+}
+CACHE_DIRS = {
+    "__pycache__", ".pytest_cache", ".ruff_cache", ".metro-cache", ".cache",
+}
+# Environment-specific keys of the Emergent preview — dropped from shipped .env
+ENV_DROP_KEYS = {
+    "EXPO_PACKAGER_PROXY_URL", "EXPO_PACKAGER_HOSTNAME",
+    "EXPO_TUNNEL_SUBDOMAIN", "METRO_CACHE_ROOT", "EXPO_USE_FAST_RESOLVER",
 }
 EXCLUDE_PATTERNS = [
     re.compile(r"_preview_.*\.png$"),     # generated PDF preview screenshots
@@ -49,12 +61,28 @@ SECRET_KEYS = [
 ]
 
 
+def write_entry(z: zipfile.ZipFile, arc: str, data: str | bytes | None = None,
+                src: Path | None = None) -> None:
+    """Write a zip entry with standard permissions (0644 files)."""
+    zi = zipfile.ZipInfo.from_file(src, arc) if src else zipfile.ZipInfo(arc, time.localtime()[:6])
+    zi.compress_type = zipfile.ZIP_DEFLATED
+    zi.external_attr = (0o100644 << 16)
+    z.writestr(zi, src.read_bytes() if src else data)
+
+
 def is_excluded(p: Path, root: Path) -> bool:
     try:
-        rel_parts = set(p.relative_to(root).parts)
+        rel = p.relative_to(root)
     except ValueError:
         return True
-    if rel_parts & EXCLUDE_DIRS:
+    rel_parts = rel.parts
+    # Only exclude EXCLUDE_DIRS when they appear at the TOP LEVEL of the
+    # source tree (not deep inside dist/assets/node_modules/... which Expo
+    # exports as part of the web build).
+    if rel_parts and rel_parts[0] in EXCLUDE_DIRS:
+        return True
+    # Cache folders are excluded at ANY depth.
+    if any(part in CACHE_DIRS for part in rel_parts[:-1]):
         return True
     if p.name in EXCLUDE_FILES:
         return True
@@ -73,6 +101,10 @@ def redact_env(text: str) -> tuple[str, list[str]]:
             keys.append(m.group(1))
             if m.group(1) in SECRET_KEYS:
                 out_lines.append(f"{m.group(1)}=__REDACTED__")
+            elif m.group(1) in ENV_DROP_KEYS:
+                continue
+            elif m.group(1) == "EXPO_PUBLIC_BACKEND_URL":
+                out_lines.append("EXPO_PUBLIC_BACKEND_URL=")
             else:
                 out_lines.append(line)
         else:
@@ -88,7 +120,7 @@ def env_example(keys: list[str]) -> str:
     )
     seen, lines = set(), []
     for k in keys:
-        if k in seen:
+        if k in seen or k in ENV_DROP_KEYS:
             continue
         seen.add(k)
         if k in SECRET_KEYS:
@@ -129,13 +161,13 @@ def build_archive(src_root: Path, zip_path: Path, extra_files: dict[str, str]):
                     continue
                 red, keys = redact_env(text)
                 env_keys.extend(keys)
-                z.writestr(arc, red)
+                write_entry(z, arc, red)
                 added_text += 1
                 continue
 
             # Binary vs text: just write as-is; zipfile handles both.
             try:
-                z.write(fp, arc)
+                write_entry(z, arc, src=fp)
             except Exception:
                 continue
             # Count rough category
@@ -149,11 +181,11 @@ def build_archive(src_root: Path, zip_path: Path, extra_files: dict[str, str]):
 
         # Extra generated files (.env.example, README)
         for name, content in extra_files.items():
-            z.writestr(name, content)
+            write_entry(z, name, content)
 
         # Generate .env.example from collected keys (if any)
         if env_keys:
-            z.writestr(".env.example", env_example(env_keys))
+            write_entry(z, ".env.example", env_example(env_keys))
 
     size_kb = zip_path.stat().st_size / 1024
     return {
@@ -212,13 +244,14 @@ Mobilus + web klientas DiaGO savitarnos diagnostikos stotelei.
 
 ```bash
 yarn install
-cp .env.example .env          # įrašykite EXPO_PUBLIC_BACKEND_URL
+cp .env.example .env          # įrašykite EXPO_PUBLIC_BACKEND_URL (arba palikite tuščią, jei /api tame pačiame domene)
 yarn start                    # arba: yarn android / yarn ios / yarn web
 ```
 
 ## Reikalingos aplinkos reikšmės (.env)
 
-- `EXPO_PUBLIC_BACKEND_URL` – backend'o viešas URL (pvz. https://api.diago.lt)
+- `EXPO_PUBLIC_BACKEND_URL` – backend'o viešas URL (pvz. https://api.diago.lt).
+  Tuščia reikšmė = užklausos į tą patį domeną per `/api/...`.
 
 ## Pagrindinės rinkmenos
 
@@ -239,6 +272,93 @@ Projektas – standartinis Expo SDK. Deploy'ui į stotelę ar web'ą:
 - Web: `expo export --platform web` → statinis build'as į `dist/`
 - iOS/Android: `eas build` (reikia EAS paskyros)
 """
+
+
+WEB_BUILD_README = """# DiaGO Web Build (static HTML + JS)
+
+Tai yra JAU SUKOMPILIUOTAS Expo web build'as — galutinis pre-rendered statinis
+tinklapis, kurį galite įkelti TIESIOGIAI į serverį (pvz. baobabas.serveriai.lt)
+po Nginx, Apache ar bet kokiu statiniu failų hosting'u.
+
+## Struktūra
+
+- `index.html` – pradinis puslapis
+- `active.html`, `chat.html`, `admin.html`, `vadovas.html`, ... – visi maršrutai
+- `_expo/static/js/` – kompiliuoto JavaScript bundle'as (stiliai įkompiliuoti į JS)
+- `assets/` – paveikslėliai (įskaitant `assets/node_modules/...` – NEtrinkite)
+- `favicon.ico`
+
+## Deploy'imas į serverį
+
+```bash
+# 1) Išarchyvuokite į Nginx document root
+unzip diago_frontend_web.zip -d /var/www/diago
+
+# 2) Nginx konfigūracijoje (/etc/nginx/sites-available/diago):
+server {
+    listen 80;
+    server_name diago.lt www.diago.lt;
+    root /var/www/diago;
+    index index.html;
+
+    # SPA routing — jei URL nerastas kaip failas, grąžinti index.html
+    location / {
+        try_files $uri $uri.html $uri/ /index.html;
+    }
+
+    # Backend API reverse proxy
+    location /api/ {
+        proxy_pass http://127.0.0.1:8001;
+        proxy_set_header Host $host;
+        proxy_set_header X-Real-IP $remote_addr;
+    }
+}
+```
+
+## SVARBU – backend URL
+
+Šis web build'as sukompiliuotas su TUŠČIA `EXPO_PUBLIC_BACKEND_URL`
+reikšme, t.y. visos užklausos eina į tą patį domeną per `/api/...`
+(todėl būtina aukščiau nurodyta Nginx `location /api/` taisyklė).
+Jei backend'as yra kitame domene, perbuildinkite iš `diago_frontend.zip`:
+
+```bash
+unzip diago_frontend.zip -d diago-source
+cd diago-source
+echo 'EXPO_PUBLIC_BACKEND_URL=https://api.diago.lt' > .env
+yarn install
+yarn expo export --platform web
+# Statinis build'as atsiras `dist/` – įkelkite jį į serverį.
+```
+"""
+
+
+def build_web_build_archive() -> dict:
+    """Package the already-exported `dist/` folder as a standalone zip."""
+    dist_dir = ROOT / "frontend" / "dist"
+    if not dist_dir.exists():
+        print(f"✗ Nėra {dist_dir}. Pirmiausia paleiskite: yarn expo export --platform web")
+        return {}
+
+    if WEB_BUILD_ZIP.exists():
+        WEB_BUILD_ZIP.unlink()
+
+    total_files = 0
+    with zipfile.ZipFile(WEB_BUILD_ZIP, "w", zipfile.ZIP_DEFLATED, compresslevel=8) as z:
+        for fp in sorted(dist_dir.rglob("*")):
+            if not fp.is_file():
+                continue
+            arc = fp.relative_to(dist_dir).as_posix()
+            write_entry(z, arc, src=fp)
+            total_files += 1
+        write_entry(z, "README.md", WEB_BUILD_README)
+
+    size_kb = WEB_BUILD_ZIP.stat().st_size / 1024
+    return {
+        "path": WEB_BUILD_ZIP,
+        "files": total_files,
+        "size_kb": size_kb,
+    }
 
 
 def main():
@@ -262,9 +382,18 @@ def main():
     print(f"    {f['text_files']} text + {f['binary_files']} binary files")
     print(f"    {f['size_kb']:.1f} KB\n")
 
+    # Web build archive (pre-rendered static HTML+JS)
+    w = build_web_build_archive()
+    if w:
+        print(f"✓ Web build: {w['path'].name}")
+        print(f"    {w['files']} files")
+        print(f"    {w['size_kb']:.1f} KB\n")
+
     print("Download URLs (via backend):")
     print(f"  /api/assets/{BACKEND_ZIP.name}")
     print(f"  /api/assets/{FRONTEND_ZIP.name}")
+    if w:
+        print(f"  /api/assets/{WEB_BUILD_ZIP.name}")
 
 
 if __name__ == "__main__":
