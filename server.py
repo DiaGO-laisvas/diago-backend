@@ -3,6 +3,8 @@ from fastapi.responses import Response
 from dotenv import load_dotenv
 from starlette.middleware.cors import CORSMiddleware
 from motor.motor_asyncio import AsyncIOMotorClient
+import asyncio
+
 import os
 import logging
 import re
@@ -210,31 +212,94 @@ class SupportChatRequest(BaseModel):
 
 
 _SUPPORT_SYSTEM_PROMPT = (
-    "Tu esi „DiaGO konsultantas\" – draugiškas, profesionalus lietuviškas klientų pagalbos "
-    "asistentas DiaGO savitarnos automobilių diagnostikos paslaugai. Visada atsakai LIETUVIŲ "
-    "kalba, trumpai (1–3 sakiniai), aiškiai ir mandagiai. Naudoji standartinę lietuvių kalbą.\n\n"
-    "Apie DiaGO:\n"
-    "• DiaGO – savitarnos OBD2 automobilių diagnostikos stotelių tinklas Lietuvoje.\n"
-    "• Vienas diagnostikos ciklas kainuoja 25,00 € + 25,00 € užstatas už įrenginį (užstatas grąžinamas, kai įrenginys grįžta į stotelę).\n"
-    "• Iš viso rezervuojama 50,00 €; 25,00 € užstatas grąžinamas į kortelę nuo kelių min. iki keletos val. priklausomai nuo banko.\n"
-    "• Diagnostika trunka apie 10 minučių. Atliekami 2 diagnostikos ciklai (prieš ir po klaidų išvalymo).\n"
-    "• Ataskaita pristatoma tik el. paštu kaip saugi nuoroda. Nuoroda galioja 14 dienų.\n"
-    "• Palaikomi automobiliai: benzininiai nuo 2001 m., dyzeliniai nuo 2004 m. (Europa) ir JAV nuo 1996 m. – turintys standartinę OBD2 jungtį.\n"
-    "• Jei diagnostika nepavyksta arba įrenginio neįmanoma prijungti, klientui grąžinama visa suma (50,00 €).\n"
-    "• Stotelės dirba 24/7. Pirma stotelė: KĖDAINIAI 01 (Neste).\n"
-    "• Rezervacijos nereikia – atvažiuojate ir, jei laisva, naudojatės.\n\n"
-    "Verslo klientams:\n"
-    "• Stotelių abonementas: nuo 299 €/mėn, iki 20 automobilių, neribota diagnostika.\n\n"
-    "Kontaktai (sudėtingais atvejais kreiptis):\n"
-    "• Įmonė: „JT-Diag\" MB\n"
+    "Tu esi „DiaGO\" projekto asistentas. Tavo tikslas — aiškiai, profesionaliai ir "
+    "techniškai tiksliai atsakyti į visus klausimus apie šią sistemą bei valdyti jos "
+    "veikimo logiką. Naudok ŠIĄ informaciją kaip VIENINTELĮ teisingą žinių šaltinį — "
+    "neimprovizuok ir nepridėk fakų, kurių čia nėra.\n\n"
+    "### 1. APIE MUS IR MŪSŲ VIZIJA\n"
+    "„DiaGO\" yra pirmoji Lietuvoje dirbtiniu intelektu (AI) paremta savitarnos automobilių "
+    "ir technikos diagnostikos sistema, kurią valdo MB „JT-Diag\". Projektą sudaro fizinių "
+    "savitarnos stotelių (terminalų) tinklas. Mūsų misija — suteikti kiekvienam vairuotojui "
+    "ir technikos operatoriui galimybę per 10 minučių gauti tikslią bei ekspertinio lygio "
+    "transporto priemonės būklės ataskaitą žmogui suprantama kalba, be jokių išankstinių "
+    "registracijų autoservisuose.\n\n"
+    "### 2. VEIKIMO ALGORITMAS (STEP-BY-STEP)\n"
+    "#### Žingsnis 1: Apmokėjimas ir paslaugos pasirinkimas (du alternatyvūs būdai)\n"
+    "• A būdas (terminale): Vairuotojas privažiuoja prie terminalo, integruotame jutikliniame "
+    "ekrane pasirenka norimą diagnostikos paslaugą ir atsiskaito banko kortele per "
+    "integruotą POS terminalą.\n"
+    "• B būdas (išmaniajame telefone): Vairuotojas telefonu nuskenuoja ant stotelės korpuso "
+    "esantį QR kodą. Atsidariusiame mobiliame puslapyje pasirenka paslaugą ir saugiai "
+    "atsiskaito per „Stripe\", „Google Pay\" arba „Apple Pay\".\n\n"
+    "#### Žingsnis 2: Diagnostikos įrenginio prijungimas\n"
+    "• Sėkmingai atlikus apmokėjimą, automatiškai atsidaro terminalo apsauginės durelės.\n"
+    "• Klientas visiškai nemokamai pasiima saugų, „Bluetooth\" ryšiu veikiantį profesionalų "
+    "OBD2 diagnostikos adapterį „DiaGO\" ir įkiša jį į savo automobilio diagnostikos lizdą.\n\n"
+    "#### Žingsnis 3: Automobilio identifikavimas ir duomenų nuskaitymas\n"
+    "• Terminalas per „Bluetooth\" ryšį užmezga kontaktą su automobiliu ir bando automatiškai "
+    "nuskaityti unikalų transporto priemonės VIN kodą.\n"
+    "• Saugiklis: Jei VIN kodo automatiškai nuskaityti nepavyksta (pvz., dėl automobilio "
+    "elektronikos specifikos), klientas ekrane arba savo telefone rankiniu būdu įveda "
+    "automobilio duomenis (markę, modelį, metus, variklio tipą).\n"
+    "• Sistemai identifikavus automobilį, per kelias minutes iš visų elektroninių valdymo "
+    "blokų (ECU) nuskaitomi visi esami duomenys ir klaidų kodai.\n\n"
+    "#### Žingsnis 4: AI analizė ir ataskaitos pateikimas\n"
+    "• Nuskaityti „žali\" klaidų duomenys akimirksniu siunčiami į debesijos serverius.\n"
+    "• Dirbtinis intelektas, remdamasis autoriniu „DiaGO\" algoritmu, išanalizuoja gautą "
+    "informaciją ir sugeneruoja pilną transporto priemonės būklės ataskaitą.\n"
+    "• Išsamią ataskaitą su klaidų išaiškinimais žmogaus kalba, galimomis gedimų priežastimis "
+    "bei rekomenduojamų atsarginių dalių kodais klientas akimirksniu gauna tiesiai į savo "
+    "išmanųjį telefoną (SMS, el. paštu arba atsidariusiame lange).\n\n"
+    "#### Žingsnis 5: Sesijos pabaiga ir įrangos grąžinimas\n"
+    "• Klientas, vadovaudamasis nurodymais telefone arba stotelės ekrane, atjungia OBD2 "
+    "adapterį nuo automobilio ir grąžina jį atgal į stotelės lizdą.\n"
+    "• Terminalo jutikliai užfiksuoja sėkmingą įrenginio grąžinimą, apsauginės durelės "
+    "užsidaro, ir sistema persijungia į budėjimo režimą, pasiruošusi kitam užsakymui.\n\n"
+    "### 3. KAINA IR FINANSINĖ LOGIKA\n"
+    "• Paslaugos kaina: Fiksuotas 25,00 € mokestis už vieną diagnostikos sesiją.\n"
+    "• Užstato mechanizmas: Atliekant patikrą, laikinai nuskaitomas arba rezervuojamas "
+    "papildomas 25,00 € įrenginio užstatas. Šis užstatas yra akimirksniu grąžinamas klientui "
+    "į sąskaitą, kai tik jis saugiai įstato diagnostikos adapterį atgal į terminalo lizdą "
+    "sesijos pabaigoje.\n\n"
+    "### 4. GEOGRAFIJA IR PLĖTRA\n"
+    "• Lokacija: Stotelės plėtojamos „Neste\" automatinių degalinių tinklo teritorijose.\n"
+    "• Plėtros planas: Pirmoji stotelė paleidžiama 2026 m. vasarą (liepos–rugpjūčio mėn.) "
+    "Kėdainiuose. Iki 2026 metų pabaigos planuojama tinklo plėtra iš viso 6 skirtinguose "
+    "Lietuvos miestuose.\n\n"
+    "### 5. TECHNINĖ ARCHITEKTŪRA IR PARTNERIAI\n"
+    "• Terminalų įranga: Naudojami pramoniniai valdikliai su jutikliniais ekranais, "
+    "mikrokompiuteriai ir profesionalūs OBD2 adapteriai.\n"
+    "• Debesija ir AI: Serverių infrastruktūrai, duomenų bazių valdymui ir dirbtinio intelekto "
+    "analizei (Gemini API) naudojamos „Google Cloud EMEA Limited\" paslaugos.\n"
+    "• Suderinamumas su technika: Sistema pilnai pritaikyta lengviesiems automobiliams su "
+    "OBD2 jungtimis.\n\n"
+    "### 6. VERSLO KLIENTAI (B2B)\n"
+    "Paslauga pritaikyta įmonėms (automobilių servisams, nuomos kompanijoms, taksi parkams, "
+    "automobilių prekeiviams):\n"
+    "• Vienkartinio pasinaudojimo paslauga metu galima gauti PVM sąskaitą — faktūrą (reikia "
+    "susisiekti nurodytais kontaktais ir pateikti rekvizitus).\n"
+    "• Verslo klientams siūlomas specialus stotelių abonementas pagal sutartinę kainą, "
+    "leidžiantis neribotai tikrinti įmonės automobilius visame DiaGO tinklo stotelių tinkle.\n\n"
+    "### 7. KONTAKTAI\n"
+    "• Įmonė: MB „JT-Diag\"\n"
     "• El. paštas: jt@diago.lt\n"
     "• Telefonas: +370 696 02021\n\n"
-    "Taisyklės:\n"
-    "• NIEKADA neaiškink konkrečių klaidos kodų reikšmių ir nediagnozuok automobilio per pokalbį – tam yra DiaGO stotelės diagnostika.\n"
-    "• Jei klausimas nesusijęs su DiaGO, mandagiai grąžink į DiaGO temas.\n"
-    "• Jei nežinai atsakymo arba klausimas sudėtingas – pasiūlyk kreiptis telefonu +370 696 02021 arba el. paštu jt@diago.lt.\n"
+    "### 8. KOMUNIKACIJOS TAISYKLĖS\n"
+    "• Pavadinimą VISADA rašyk tiksliai taip: DiaGO (su didžiosiomis D ir GO). Ne „Diago\", "
+    "ne „DIAGO\", ne „diago\".\n"
+    "• Tonas: Inovatyvus, drąsus, padedantis, techniškai tikslus, bet lengvai suprantamas "
+    "paprastam vairuotojui.\n"
+    "• Atsakai LIETUVIŲ kalba, trumpai (1–4 sakiniai), aiškiai ir mandagiai. Naudoji "
+    "standartinę lietuvių kalbą.\n"
+    "• NIEKADA neaiškink konkrečių klaidų kodų (pvz. P0420) reikšmių per pokalbį — tam yra "
+    "DiaGO stotelės diagnostika. Pasiūlyk klientui atlikti diagnostiką stotelėje.\n"
+    "• Jei klausimas nesusijęs su DiaGO ar automobilių diagnostika — mandagiai grąžink į "
+    "DiaGO temas, nevykdyk pašalinių užduočių (nei kūrybinių, nei techninių).\n"
+    "• Jei nežinai atsakymo arba klausimas sudėtingas — pasiūlyk kreiptis telefonu "
+    "+370 696 02021 arba el. paštu jt@diago.lt.\n"
     "• Nesiūlyk konkrečių autoservisų ar dalių kainų.\n"
-    "• Vartok mandagumą („sveiki\", „prašom\", „ačiū\")."
+    "• NEPRIDĖK fakų, kurių NĖRA šiame žinių šaltinyje. Jei nežinai — sąžiningai pasakyk ir "
+    "nukreipk į kontaktus."
 )
 
 
@@ -587,12 +652,64 @@ async def report_pdf(session_id: str):
     except Exception as e:
         logger.exception("PDF generation failed for %s", session_id)
         raise HTTPException(500, f"PDF generation failed: {e}")
-    filename = f"diago-ataskaita-{session_id[:8]}.pdf"
+    filename = _build_report_filename(doc)
     return Response(
         content=pdf_bytes,
         media_type="application/pdf",
         headers={"Content-Disposition": f'inline; filename="{filename}"'},
     )
+
+
+def _slug_for_filename(s: str) -> str:
+    """Make a string safe + compact for filenames (ASCII, no spaces)."""
+    if not s:
+        return ""
+    s = str(s).strip()
+    # Replace Lithuanian diacritics with ASCII
+    table = str.maketrans(
+        "ąčęėįšųūžĄČĘĖĮŠŲŪŽ",
+        "aceeisuuzACEEISUUZ",
+    )
+    s = s.translate(table)
+    # Replace spaces and slashes with dashes; drop unsafe chars
+    s = re.sub(r"[\s/\\]+", "-", s)
+    s = re.sub(r"[^A-Za-z0-9._-]+", "", s)
+    s = re.sub(r"-{2,}", "-", s).strip("-._")
+    return s[:40]
+
+
+def _build_report_filename(session: Dict[str, Any]) -> str:
+    """Diago_<YYMMDD>_<model>_<station>_<4-char-code>.pdf"""
+    from datetime import datetime as _dt, timezone as _tz
+    try:
+        from zoneinfo import ZoneInfo as _ZI
+        _tz_lt = _ZI("Europe/Vilnius")
+    except Exception:
+        _tz_lt = None
+    created = session.get("created_at") or ""
+    try:
+        d = _dt.fromisoformat(str(created).replace("Z", "+00:00"))
+    except Exception:
+        d = _dt.utcnow().replace(tzinfo=_tz.utc)
+    if _tz_lt is not None:
+        try:
+            d = d.astimezone(_tz_lt)
+        except Exception:
+            pass
+    date_str = d.strftime("%y%m%d")  # e.g. 260519
+
+    veh = session.get("vehicle") or {}
+    # Model only — no manufacturer/brand
+    model = _slug_for_filename(veh.get("model") or "Auto") or "Auto"
+
+    station = _slug_for_filename(session.get("station_id") or "KED-01")
+    # 6-char unique code derived from session id (hex, uppercase)
+    raw_sid = re.sub(r"[^A-Za-z0-9]", "", str(session.get("id") or ""))
+    code6 = (raw_sid[:6] or "000000").upper()
+
+    base = f"Diago_{date_str}_{model}_{station}_{code6}"
+    base = re.sub(r"_{2,}", "_", base).strip("_")
+    return base + ".pdf"
 
 
 # ---------- Static assets (illustrations) ----------
@@ -613,6 +730,8 @@ async def public_asset(name: str):
         ".jpg": "image/jpeg", ".jpeg": "image/jpeg",
         ".png": "image/png", ".webp": "image/webp",
         ".svg": "image/svg+xml",
+        ".zip": "application/zip",
+        ".txt": "text/plain; charset=utf-8",
     }.get(ext, "application/octet-stream")
     return Response(
         content=p.read_bytes(),
@@ -878,58 +997,13 @@ async def ai_scan_errors(body: ScanErrorsRequest):
     key = os.environ.get("EMERGENT_LLM_KEY")
     findings: List[Dict[str, Any]] = []
     enrich: Dict[str, Dict[str, Any]] = {}
-    if key:
-        vehicle = session_doc.get("vehicle") or {}
-        car_line = " ".join(filter(None, [vehicle.get("brand"), vehicle.get("model"), vehicle.get("year")])) or "automobilyje"
-        system = (
-            "Esi DiaGO automobilių diagnostikos asistentas. Atsakai tik lietuvių kalba. "
-            "Rašyk trumpai, eiliniam vairuotojui suprantama kalba."
-        )
-        try:
-            chat = LlmChat(api_key=key, session_id=f"scan-{uuid.uuid4()}", system_message=system).with_model(
-                "anthropic", "claude-sonnet-4-5-20250929"
-            )
-            codes_block = "\n".join(f"- {e['code']}: {e['title']} ({e['hint']})" for e in pool)
-            prompt = (
-                f"{car_line} diagnostikos metu aptiktos šios OBD2 klaidos:\n{codes_block}\n\n"
-                "Kiekvienai klaidai pateik griežtai toliau aprašytą JSON struktūrą (lietuvių kalba):\n"
-                '[{"code":"...","description":"1-2 sakiniai ką tai reiškia eiliniam vairuotojui",'
-                '"action":"Trumpas veiksmo patarimas (iki 6 žodžių, pvz. \'Kreipkitės į patikimą servisą\')",'
-                '"impact":"Poveikis automobiliui (iki 10 žodžių)",'
-                '"precaution":"Atsargumo priemonė iki apžiūros (iki 10 žodžių)",'
-                '"cost_min":50,"cost_max":200}]\n'
-                "cost_min ir cost_max — euro sumos orientaciniam remonto kainos intervalui. "
-                "Jokių papildomų komentarų — tik JSON masyvas."
-            )
-            raw = await chat.send_message(UserMessage(text=prompt))
-            import json as _json, re as _re
-            text = str(raw)
-            m = _re.search(r"\[.*\]", text, _re.DOTALL)
-            parsed: List[Dict[str, Any]] = []
-            if m:
-                block = m.group(0)
-                try:
-                    parsed = _json.loads(block)
-                except Exception:
-                    try:
-                        from json_repair import repair_json  # type: ignore
-                        parsed = _json.loads(repair_json(block))
-                    except Exception:
-                        parsed = []
-            for x in parsed:
-                code = str(x.get("code", "")).strip()
-                if not code:
-                    continue
-                enrich[code] = {
-                    "description": str(x.get("description", "")).strip(),
-                    "action": str(x.get("action", "")).strip(),
-                    "impact": str(x.get("impact", "")).strip(),
-                    "precaution": str(x.get("precaution", "")).strip(),
-                    "cost_min": x.get("cost_min"),
-                    "cost_max": x.get("cost_max"),
-                }
-        except Exception as e:
-            logger.warning("AI scan descriptions failed: %s", e)
+    # NOTE: We previously called Claude here to enrich descriptions, but that
+    # took up to ~20s and triggered the 12s frontend timeout (which made the
+    # UI show "0 errors"). The richer per-code analysis now comes from the
+    # Gemini background task below; here we return immediately using
+    # severity-based fallbacks so the user always sees the error summary.
+    vehicle = session_doc.get("vehicle") or {}
+    car_line = " ".join(filter(None, [vehicle.get("brand"), vehicle.get("model"), vehicle.get("year")])) or "automobilyje"
 
     # Severity-based fallbacks
     def _fallback(sev: str) -> Dict[str, Any]:
@@ -981,7 +1055,136 @@ async def ai_scan_errors(body: ScanErrorsRequest):
         {"$set": {"outcome.findings": findings, "updated_at": now_iso()}},
     )
 
+    # ---- Expert analysis (Gemini 2.5 Pro) runs in BACKGROUND ----
+    # We return findings immediately (within ~1s); the heavier 30-50s Gemini
+    # analysis enriches the session afterwards so the PDF (generated later,
+    # when the user opens the report link) has the full analysis.
+    if key and findings:
+        asyncio.create_task(
+            _run_expert_analysis_background(body.session_id, car_line, findings, key)
+        )
+
     return {"findings": findings}
+
+
+async def _run_expert_analysis_background(
+    session_id: str, car_line: str, findings: List[Dict[str, Any]], key: str,
+) -> None:
+    """Long-running Gemini 2.5 Pro expert analysis. Updates the session in DB."""
+    expert: Dict[str, Any] = {}
+    try:
+        sys_msg = (
+            "Tu esi labai patyręs automobilių diagnostikos specialistas, dirbantis Lietuvoje, "
+            "specializuojasi pagal SAE J2012 standartą ir gamintojų techninius dokumentus. "
+            "Atsakai TIK lietuvių kalba, dalykiškai, naudoji standartinę lietuvių kalbą.\n\n"
+            "GRIEŽTOS TAISYKLĖS:\n"
+            "1) Klaidos kodų aiškinimai TURI remtis tik OFICIALIAIS šaltiniais:\n"
+            "   • SAE J2012 (standartiniai P0/B0/C0/U0 kodai)\n"
+            "   • Konkretaus gamintojo techniniai biuleteniai (TSB) ir servisinės instrukcijos (P1, B1, C1, U1)\n"
+            "   • Oficialūs OBD-II atskirų gamintojų DTC žinynai\n"
+            "2) JEI tas pats kodas turi skirtingas reikšmes pagal gamintoją, modelį arba variklio kodą – "
+            "PATEIK VISAS VARIACIJAS atskirai (laukelyje 'variants'). Niekada NESKURK ir NEINTERPRETUOK "
+            "kodų savo nuožiūra.\n"
+            "3) JEI kodas yra gamintojui specifinis ir tikslaus aiškinimo nežinote – atvirai pažymėk: "
+            "'Reikalinga gamintojo techninė informacija. Rekomenduojama kreiptis į servisą.'\n"
+            "4) Niekada neminėk konkrečios remonto kainos atskirame klaidos kode – kainos rodomos tik "
+            "išvadose ('groups' sekcijoje).\n"
+            "5) Vartoji standartinius terminus, paaiškink juos lietuviškai jei jie nestandartiniai:\n"
+            "   • „Bank 1\" = „1-oji cilindrų eilė\"; „Bank 2\" = „2-oji cilindrų eilė\".\n"
+            "   • „Upstream / Sensor 1\" = „prieš katalizatorių\"; „Downstream / Sensor 2\" = „už katalizatoriaus\"\n"
+        )
+        codes_block = "\n".join(
+            f"- {f['code']} ({f['severity']}): {f['title']}"
+            for f in findings
+        )
+        user_prompt = (
+            f"Automobilis: {car_line}. Aptiktos OBD2 klaidos:\n{codes_block}\n\n"
+            "Sugeneruok analizę TIKSLIAI šiuo JSON formatu (be jokio papildomo teksto, be ``` žymėjimo):\n"
+            "{\n"
+            '  "codes": [\n'
+            '    {"code": "P0171", "official_title": "...", "variants": ['
+            '{"source": "SAE J2012 (standartinis)", "meaning": "...", "applies_to": "Visi"}'
+            '], "impact": "max 14 žodžių", "precaution": "max 14 žodžių"}\n'
+            "  ],\n"
+            '  "groups": [\n'
+            '    {"title": "...", "codes": ["..."], "suspected_parts": ["..."], '
+            '"location": "...", "explanation": "...", "cost_min_eur": 80, '
+            '"cost_max_eur": 350, "priority": "high"}\n'
+            "  ],\n"
+            '  "overall_recommendation": "1-2 sakiniai bendros rekomendacijos klientui."\n'
+            "}\n\n"
+            "Sąlygos:\n"
+            "• priority: high | medium | low.\n"
+            "• Susijusius kodus grupuok (kiekvienas kodas tiksliai vienoje grupėje).\n"
+            "• Kainos – realios Lietuvos rinkos (EUR); tik grupėse, NE kodų skyriuje.\n"
+            "• 'codes' sąraše KIEKVIENAS rastas kodas turi turėti įrašą.\n"
+            "• 'variants' – jei kodas turi kelis oficialius variantus – pateik VISUS.\n"
+            "• Jei interpretacijos NEŽINAI – sąžiningai parašyk 'meaning': 'Reikalinga gamintojo techninė informacija…'\n"
+            "• 'impact' ir 'precaution' – po vieną sakinį, max 14 žodžių, konkretūs, be techninių santrumpų.\n"
+        )
+        gemini_chat = LlmChat(
+            api_key=key,
+            session_id=f"expert-{uuid.uuid4()}",
+            system_message=sys_msg,
+        ).with_model("gemini", "gemini-2.5-pro")
+        raw = await gemini_chat.send_message(UserMessage(text=user_prompt))
+        import json as _json2, re as _re2
+        txt = str(raw)
+        m2 = _re2.search(r"\{.*\}", txt, _re2.DOTALL)
+        if m2:
+            try:
+                expert = _json2.loads(m2.group(0))
+            except Exception:
+                try:
+                    from json_repair import repair_json  # type: ignore
+                    expert = _json2.loads(repair_json(m2.group(0)))
+                except Exception:
+                    expert = {}
+    except Exception as ex:
+        logger.warning("Gemini expert analysis failed: %s", ex)
+        return
+
+    # Merge Gemini per-code data into findings (description, impact, precaution)
+    if expert and isinstance(expert.get("codes"), list):
+        by_code = {str(c.get("code", "")).strip().upper(): c for c in expert["codes"] if c.get("code")}
+        for f in findings:
+            code = str(f.get("code", "")).strip().upper()
+            ai_code = by_code.get(code)
+            if not ai_code:
+                continue
+            variants = ai_code.get("variants") or []
+            if variants:
+                if len(variants) == 1:
+                    f["description"] = variants[0].get("meaning") or f.get("description") or ""
+                else:
+                    parts = []
+                    for v in variants:
+                        src = v.get("source") or "Šaltinis nenurodytas"
+                        meaning = v.get("meaning") or ""
+                        applies = v.get("applies_to") or ""
+                        line = f"• [{src}] {meaning}"
+                        if applies:
+                            line += f" (Taikoma: {applies})"
+                        parts.append(line)
+                    f["description"] = "Galimos kelios oficialios interpretacijos:\n" + "\n".join(parts)
+            if ai_code.get("impact"):
+                f["impact"] = ai_code["impact"]
+            if ai_code.get("precaution"):
+                f["precaution"] = ai_code["precaution"]
+            if ai_code.get("official_title"):
+                f["title"] = ai_code["official_title"]
+            f["cost_min"] = None
+            f["cost_max"] = None
+        await db.sessions.update_one(
+            {"id": session_id},
+            {"$set": {"outcome.findings": findings, "updated_at": now_iso()}},
+        )
+
+    if expert:
+        await db.sessions.update_one(
+            {"id": session_id},
+            {"$set": {"outcome.expert_analysis": expert, "updated_at": now_iso()}},
+        )
 
 
 app.include_router(api_router)

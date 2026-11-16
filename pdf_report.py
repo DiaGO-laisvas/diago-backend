@@ -8,7 +8,26 @@ from __future__ import annotations
 
 import io
 import os
-from datetime import datetime, timedelta
+import re
+
+from datetime import datetime, timedelta, timezone
+try:
+    from zoneinfo import ZoneInfo
+    VILNIUS_TZ = ZoneInfo("Europe/Vilnius")
+except Exception:
+    VILNIUS_TZ = None
+
+
+def _to_vilnius(dt: datetime) -> datetime:
+    """Convert a naive UTC or aware datetime to Lithuania (Europe/Vilnius) time."""
+    if dt.tzinfo is None:
+        dt = dt.replace(tzinfo=timezone.utc)
+    if VILNIUS_TZ is not None:
+        try:
+            return dt.astimezone(VILNIUS_TZ)
+        except Exception:
+            pass
+    return dt
 from pathlib import Path
 from typing import Any, Dict, List
 
@@ -63,15 +82,15 @@ TEXT_DARK = rl_colors.HexColor("#1A1612")
 TEXT_MUTED = rl_colors.HexColor("#595048")
 SURFACE = rl_colors.HexColor("#F7F3EC")
 BORDER = rl_colors.HexColor("#D8CFC0")
-HEADER_BG = rl_colors.HexColor("#000000")  # pure black to match logo background
-HEADER_TEXT_MUTED = rl_colors.HexColor("#B3A99A")
-HEADER_TEXT_LIGHT = rl_colors.HexColor("#EDE6D9")
+# Printable, soft cream header — no black ink heavy areas
+HEADER_BG = rl_colors.HexColor("#FAF5EC")
+HEADER_TEXT_MUTED = rl_colors.HexColor("#7A6F62")
+HEADER_TEXT_LIGHT = rl_colors.HexColor("#1A1612")
 
 # ---------- Company / brand contacts (overridable via env) ----------
 COMPANY_NAME = "DiaGO"
 COMPANY_EMAIL = os.environ.get("COMPANY_EMAIL", "jt@diago.lt")
-COMPANY_PHONE_1 = os.environ.get("COMPANY_PHONE_1", "+370 676 22053")
-COMPANY_PHONE_2 = os.environ.get("COMPANY_PHONE_2", "+370 638 34539")
+COMPANY_PHONE = os.environ.get("COMPANY_PHONE", os.environ.get("COMPANY_PHONE_1", "+370 696 02021"))
 COMPANY_WEBSITE = os.environ.get("COMPANY_WEBSITE", "diago.lt")
 REPORT_LINK_VALID_DAYS = int(os.environ.get("REPORT_LINK_VALID_DAYS", "14"))
 
@@ -128,6 +147,12 @@ def _styles() -> Dict[str, ParagraphStyle]:
         textColor=TEXT_DARK,
         spaceAfter=4,
     )
+    h1_compact = ParagraphStyle(
+        "h1_compact",
+        parent=h1,
+        fontSize=17,
+        leading=21,
+    )
     h2 = ParagraphStyle(
         "h2",
         fontName=FONT_BOLD,
@@ -152,7 +177,7 @@ def _styles() -> Dict[str, ParagraphStyle]:
         textColor=rl_colors.white,
         alignment=TA_CENTER,
     )
-    return dict(body=body, muted=muted, h1=h1, h2=h2, finding_title=finding_title, badge=badge)
+    return dict(body=body, muted=muted, h1=h1, h1_compact=h1_compact, h2=h2, finding_title=finding_title, badge=badge)
 
 
 def _header_footer(canvas, doc):
@@ -160,7 +185,7 @@ def _header_footer(canvas, doc):
     canvas.saveState()
     width, height = A4
 
-    # ---- Header band ----
+    # ---- Header band (soft cream, printable) ----
     HEADER_H = 32 * mm
     canvas.setFillColor(HEADER_BG)
     canvas.rect(0, height - HEADER_H, width, HEADER_H, fill=1, stroke=0)
@@ -191,17 +216,22 @@ def _header_footer(canvas, doc):
         canvas.setFont(FONT_BOLD, 26)
         canvas.drawString(18 * mm, height - HEADER_H + 12 * mm, "DiaGO")
 
-    # Contacts (right) – e-mail + phones (one per line)
-    right_x = width - 14 * mm
-    canvas.setFillColor(HEADER_TEXT_LIGHT)
-    canvas.setFont(FONT_BOLD, 10)
-    canvas.drawRightString(right_x, height - 11 * mm, COMPANY_EMAIL)
-    canvas.setFont(FONT_REGULAR, 10)
-    canvas.drawRightString(right_x, height - 18 * mm, _phone_pretty(COMPANY_PHONE_1))
-    canvas.drawRightString(right_x, height - 24 * mm, _phone_pretty(COMPANY_PHONE_2))
+    # Contacts (right) – single email + phone, left-aligned together at the
+    # same X position (longest line determines the column's left edge).
+    right_edge = width - 14 * mm
+    email_text = COMPANY_EMAIL
+    phone_text = _phone_pretty(COMPANY_PHONE)
+    canvas.setFont(FONT_REGULAR, 11)
+    email_w = canvas.stringWidth(email_text, FONT_REGULAR, 11)
+    phone_w = canvas.stringWidth(phone_text, FONT_REGULAR, 11)
+    col_left = right_edge - max(email_w, phone_w)
+    canvas.setFillColor(TEXT_DARK)
+    canvas.setFont(FONT_REGULAR, 11)
+    canvas.drawString(col_left, height - 14 * mm, email_text)
+    canvas.drawString(col_left, height - 22 * mm, phone_text)
 
-    # ---- Footer band (matches header) ----
-    FOOTER_H = 16 * mm
+    # ---- Footer band (matches header, soft cream) ----
+    FOOTER_H = 14 * mm
     canvas.setFillColor(BRAND_ORANGE)
     canvas.rect(0, FOOTER_H, width, 1.5, fill=1, stroke=0)
     canvas.setFillColor(HEADER_BG)
@@ -209,12 +239,12 @@ def _header_footer(canvas, doc):
     canvas.setFillColor(HEADER_TEXT_MUTED)
     canvas.setFont(FONT_REGULAR, 8)
     canvas.drawString(
-        14 * mm, 6 * mm,
+        14 * mm, 5 * mm,
         f"DiaGO © {datetime.utcnow().year}  ·  Ataskaita parengta remiantis elektroninės diagnostikos duomenimis",
     )
-    canvas.setFillColor(HEADER_TEXT_LIGHT)
+    canvas.setFillColor(TEXT_DARK)
     canvas.setFont(FONT_BOLD, 8)
-    canvas.drawRightString(width - 14 * mm, 6 * mm, f"Puslapis {doc.page}")
+    canvas.drawRightString(width - 14 * mm, 5 * mm, f"Puslapis {doc.page}")
     canvas.restoreState()
 
 
@@ -334,14 +364,10 @@ def _finding_block(f: Dict[str, Any], styles) -> KeepTogether:
     rows: List = []
     if description:
         rows.append([Paragraph("Aprašymas", styles["muted"]), Paragraph(description, styles["body"])])
-    if action:
-        rows.append([Paragraph("Rekomendacija", styles["muted"]), Paragraph(action, styles["body"])])
     if impact:
         rows.append([Paragraph("Poveikis", styles["muted"]), Paragraph(impact, styles["body"])])
     if precaution:
         rows.append([Paragraph("Atsargumo priemonės", styles["muted"]), Paragraph(precaution, styles["body"])])
-    if cost:
-        rows.append([Paragraph("Remonto kaina (orientacinė)", styles["muted"]), Paragraph(cost, styles["body"])])
 
     body_tbl = None
     if rows:
@@ -363,6 +389,88 @@ def _finding_block(f: Dict[str, Any], styles) -> KeepTogether:
         elements.append(body_tbl)
     elements.append(Spacer(1, 5 * mm))
     return KeepTogether(elements)
+
+
+_PRIORITY_MAP = {
+    "high":   ("RIMTA",         CRITICAL_RED),
+    "medium": ("ĮSPĖJIMAS",     WARNING_ORANGE),
+    "low":    ("INFORMACINĖ",   INFO_BLUE),
+}
+
+
+def _priority_chip(prio: str, styles):
+    label, color = _PRIORITY_MAP.get(str(prio or "medium").lower(), _PRIORITY_MAP["medium"])
+    t = Table([[Paragraph(label, styles["badge"])]], colWidths=[34 * mm], rowHeights=[6 * mm])
+    t.setStyle(TableStyle([
+        ("BACKGROUND", (0, 0), (-1, -1), color),
+        ("BOX", (0, 0), (-1, -1), 0.5, color),
+        ("VALIGN", (0, 0), (-1, -1), "MIDDLE"),
+        ("ALIGN", (0, 0), (-1, -1), "CENTER"),
+        ("LEFTPADDING", (0, 0), (-1, -1), 4),
+        ("RIGHTPADDING", (0, 0), (-1, -1), 4),
+        ("TOPPADDING", (0, 0), (-1, -1), 1),
+        ("BOTTOMPADDING", (0, 0), (-1, -1), 1),
+    ]))
+    return t
+
+
+def _expert_group_block(g: Dict[str, Any], styles) -> KeepTogether:
+    title = str(g.get("title") or "Galima problemos grupė").strip()
+    codes = g.get("codes") or []
+    codes_str = ", ".join(str(c) for c in codes) if codes else "—"
+    parts = g.get("suspected_parts") or []
+    parts_str = "; ".join(str(p) for p in parts) if parts else "—"
+    location = str(g.get("location") or "").strip() or "—"
+    explanation = str(g.get("explanation") or "").strip()
+    cmin = g.get("cost_min_eur")
+    cmax = g.get("cost_max_eur")
+    if cmin is not None and cmax is not None:
+        cost = f"{cmin}–{cmax} €"
+    elif cmin is not None:
+        cost = f"nuo {cmin} €"
+    else:
+        cost = "—"
+    prio = g.get("priority") or "medium"
+
+    hdr = Table(
+        [[
+            _priority_chip(prio, styles),
+            Paragraph(f"<b>{title}</b>", styles["finding_title"]),
+        ]],
+        colWidths=[46 * mm, 119 * mm],
+    )
+    hdr.setStyle(TableStyle([
+        ("VALIGN", (0, 0), (-1, -1), "MIDDLE"),
+        ("LEFTPADDING", (0, 0), (-1, -1), 0),
+        ("RIGHTPADDING", (0, 0), (-1, -1), 0),
+        ("TOPPADDING", (0, 0), (-1, -1), 0),
+        ("BOTTOMPADDING", (0, 0), (-1, -1), 0),
+    ]))
+
+    rows: List = [
+        [Paragraph("Susiję klaidos kodai", styles["muted"]), Paragraph(codes_str, styles["body"])],
+        [Paragraph("Galimai sugedusios detalės", styles["muted"]), Paragraph(parts_str, styles["body"])],
+        [Paragraph("Vieta automobilyje", styles["muted"]), Paragraph(location, styles["body"])],
+    ]
+    if explanation:
+        rows.append([Paragraph("Paaiškinimas", styles["muted"]), Paragraph(explanation, styles["body"])])
+    rows.append([Paragraph("Remonto kaina (orientacinė)", styles["muted"]), Paragraph(cost, styles["body"])])
+
+    body_tbl = Table(rows, colWidths=[55 * mm, 110 * mm])
+    body_tbl.setStyle(TableStyle([
+        ("VALIGN", (0, 0), (-1, -1), "TOP"),
+        ("LEFTPADDING", (0, 0), (-1, -1), 8),
+        ("RIGHTPADDING", (0, 0), (-1, -1), 8),
+        ("TOPPADDING", (0, 0), (-1, -1), 5),
+        ("BOTTOMPADDING", (0, 0), (-1, -1), 5),
+        ("LINEABOVE", (0, 0), (-1, 0), 0.25, BORDER),
+        ("INNERGRID", (0, 0), (-1, -1), 0.25, BORDER),
+        ("BACKGROUND", (0, 0), (-1, -1), rl_colors.white),
+        ("BOX", (0, 0), (-1, -1), 0.5, BORDER),
+    ]))
+
+    return KeepTogether([hdr, Spacer(1, 3 * mm), body_tbl, Spacer(1, 6 * mm)])
+
 
 
 def build_report_pdf(session: Dict[str, Any]) -> bytes:
@@ -388,17 +496,21 @@ def build_report_pdf(session: Dict[str, Any]) -> bytes:
 
     # ---- Intro / meta
     story.append(Spacer(1, 2 * mm))
-    sid_short = str(session.get("id", ""))[:8].upper()
-    story.append(Paragraph(f"Diagnostikos ataskaita Nr. {sid_short}", styles["h1"]))
+    raw_sid = re.sub(r"[^A-Za-z0-9]", "", str(session.get("id", "")))
+    code6 = (raw_sid[:6] or "000000").upper()
+    station_no = session.get("station_id") or "KED-01"
+    report_no = f"{station_no}_{code6}"
+    story.append(Paragraph(f"Diagnostikos ataskaita Nr. {report_no}", styles["h1_compact"]))
 
     created = session.get("created_at") or ""
     try:
         dt = datetime.fromisoformat(created.replace("Z", "+00:00"))
-        created_str = dt.strftime("%Y-%m-%d %H:%M UTC")
     except Exception:
-        dt = datetime.utcnow()
-        created_str = created or "—"
-    station = session.get("station_id") or "STATION-01"
+        dt = datetime.utcnow().replace(tzinfo=timezone.utc)
+    dt_lt = _to_vilnius(dt)
+    tz_label = dt_lt.tzname() or "LT"
+    created_str = dt_lt.strftime(f"%Y-%m-%d %H:%M {tz_label}")
+    station = session.get("station_id") or "KED-01"
     story.append(Paragraph(f"Data: {created_str}    ·    Stotelė: {station}", styles["muted"]))
     story.append(Spacer(1, 4 * mm))
 
@@ -456,15 +568,40 @@ def build_report_pdf(session: Dict[str, Any]) -> bytes:
         for f in sorted_findings:
             story.append(_finding_block(f, styles))
 
+    # ---- Expert analysis (Gemini-generated): groups, parts, location, cost
+    expert = outcome.get("expert_analysis") or {}
+    groups = expert.get("groups") or []
+    overall_reco = expert.get("overall_recommendation") or ""
+    if groups or overall_reco:
+        analysis_section = [Paragraph("4. Išsami DiaGO analizė", styles["h2"])]
+        for g in groups:
+            analysis_section.append(_expert_group_block(g, styles))
+        if overall_reco:
+            analysis_section.append(Spacer(1, 2 * mm))
+            analysis_section.append(Paragraph(
+                f"<b>Bendra rekomendacija:</b> {overall_reco}",
+                styles["body"],
+            ))
+        # Keep section header together with at least one group block
+        if len(analysis_section) >= 2:
+            head_with_first = KeepTogether(analysis_section[:2])
+            story.append(head_with_first)
+            for itm in analysis_section[2:]:
+                story.append(itm)
+        else:
+            for itm in analysis_section:
+                story.append(itm)
+
     # ---- Actions performed (always include the standard checks; mark conditional ones)
-    story.append(Paragraph("4. Atlikti veiksmai", styles["h2"]))
+    actions_section_num = 5 if (groups or overall_reco) else 4
+    story.append(Paragraph(f"{actions_section_num}. Atlikti veiksmai", styles["h2"]))
 
     # Build the rows. status is True (atlikta), False (neatlikta) – determines the icon.
     actions: List[tuple] = [
         (
             True,
             "Pilnas OBD2 nuskaitymas",
-            "Šiuo metu galime nuskaityti tik variklį. Kiti blokai galės būti nuskaityti ateityje.",
+            "Nuskaityti visi automobilio valdymo blokai, identifikuoti aktyvūs ir istoriniai gedimų kodai.",
         ),
         (
             True,
@@ -547,10 +684,16 @@ def build_report_pdf(session: Dict[str, Any]) -> bytes:
         ("RIGHTPADDING", (0, 0), (0, -1), 0),
         ("BACKGROUND", (0, 0), (-1, -1), rl_colors.white),
     ]))
-    story.append(actions_tbl)
+    # Keep section header together with the actions table to avoid orphan headers
+    story.pop()  # remove previously appended header
+    story.append(KeepTogether([
+        Paragraph(f"{actions_section_num}. Atlikti veiksmai", styles["h2"]),
+        actions_tbl,
+    ]))
 
     # ---- Delivery info (where the link was sent + validity)
-    story.append(Paragraph("5. Ataskaitos pristatymas", styles["h2"]))
+    delivery_section_num = 6 if (groups or overall_reco) else 5
+    delivery_header = Paragraph(f"{delivery_section_num}. Ataskaitos pristatymas", styles["h2"])
     contact = session.get("contact") or {}
     method = (contact.get("method") or "").lower()
     value = contact.get("value") or "—"
@@ -573,11 +716,12 @@ def build_report_pdf(session: Dict[str, Any]) -> bytes:
         ("Kopija archyvui", "ataskaitos@diago.lt"),
         ("Nuorodos galiojimas", f"<b>{REPORT_LINK_VALID_DAYS} dienų</b> – iki {expires_str}"),
     ]
-    story.append(_kv_table(delivery_rows, styles))
+    # Keep section header together with the delivery table
+    story.append(KeepTogether([delivery_header, _kv_table(delivery_rows, styles)]))
 
     # ---- Important info / disclaimer
     story.append(Spacer(1, 6 * mm))
-    story.append(Paragraph("Svarbi informacija", styles["h2"]))
+    important_header = Paragraph("Svarbi informacija", styles["h2"])
 
     # DiaGO overall conclusion – adapts to severity counts
     def _lt_plural(n: int, one: str, few: str, many: str) -> str:
@@ -625,11 +769,14 @@ def build_report_pdf(session: Dict[str, Any]) -> bytes:
     else:
         conclusion = (
             f"<b>DiaGO bendra išvada:</b> {vehicle_lbl} diagnostikos metu klaidų neaptikta – "
-            "variklio valdymo blokas atsako taisyklingai, aktyvių ar istorinių gedimų kodų nėra. "
+            "visi valdymo blokai atsako taisyklingai, aktyvių ar istorinių gedimų kodų nėra. "
             "Elektroninių sistemų būklė vertinama kaip <b>gera</b>. Rekomenduojame ir toliau "
             "laikytis gamintojo numatyto techninio aptarnavimo grafiko."
         )
-    story.append(Paragraph(conclusion, styles["body"]))
+    story.append(KeepTogether([
+        important_header,
+        Paragraph(conclusion, styles["body"]),
+    ]))
     story.append(Spacer(1, 3 * mm))
     story.append(Paragraph(
         "Ši ataskaita parengta remiantis automobilio valdymo kompiuterio OBD2 duomenimis diagnostikos metu. "
